@@ -1,0 +1,42 @@
+# Binaries
+backend/rollboard-server
+backend/rollboard
+*.exe
+*.out
+
+# Node
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Data
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Temp
+tmp/
+logs/
+*.log
+
+# Environment
+.env
+
+# Coverage
+coverage.*
+*.coverprofile
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
