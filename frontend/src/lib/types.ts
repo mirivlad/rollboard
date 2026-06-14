@@ -43,6 +43,7 @@ export interface EdgeCondition {
   values?: number[];
   resource?: string;
   amount?: number;
+  label?: string;
 }
 
 export interface RuleSet {

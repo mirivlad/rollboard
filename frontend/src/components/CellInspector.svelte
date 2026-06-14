@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { CellDefinition, EdgeDefinition, RuleSet } from '../lib/types';
 
-  let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect }: {
+  let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect, onEdgeChange }: {
     cell: CellDefinition | null | undefined;
     edges: EdgeDefinition[];
     rules: RuleSet;
@@ -10,6 +10,7 @@
     onDeleteEdge?: (id: string) => void;
     selectedEdgeId?: string;
     onEdgeSelect?: (id: string | undefined) => void;
+    onEdgeChange?: (edge: EdgeDefinition) => void;
   } = $props();
 
   let typeDef = $derived(cell ? rules.cellTypes[cell.type] : null);
@@ -25,6 +26,40 @@
     if (!cell || !onCellChange) return;
     const updated = { ...cell, visual: { ...cell.visual, [key]: value } };
     onCellChange(updated);
+  }
+
+  // --- Edge condition helpers ---
+  let conditionTypes: { value: string; label: string }[] = [
+    { value: 'always', label: 'Always' },
+    { value: 'dice_total_even', label: 'Dice Total Even' },
+    { value: 'dice_total_odd', label: 'Dice Total Odd' },
+    { value: 'dice_total_in', label: 'Dice Total In' },
+    { value: 'player_resource_at_least', label: 'Resource ≥ Amount' },
+    { value: 'manual_choice', label: 'Manual Choice' },
+    { value: 'pay_resource', label: 'Pay Resource' },
+  ];
+
+  let selectedEdge = $derived(edges.find(e => e.id === selectedEdgeId) ?? null);
+
+  function updateConditionType(type: string) {
+    if (!selectedEdge || !onEdgeChange) return;
+    onEdgeChange({
+      ...selectedEdge,
+      condition: { type, ...(selectedEdge.condition.values ? { values: selectedEdge.condition.values } : {}), ...(selectedEdge.condition.resource ? { resource: selectedEdge.condition.resource } : {}), ...(selectedEdge.condition.amount ? { amount: selectedEdge.condition.amount } : {}), ...(selectedEdge.condition.label ? { label: selectedEdge.condition.label } : {}) },
+    });
+  }
+
+  function updateConditionField(field: string, value: any) {
+    if (!selectedEdge || !onEdgeChange) return;
+    const cond = { ...selectedEdge.condition, [field]: value };
+    onEdgeChange({ ...selectedEdge, condition: cond });
+  }
+
+  function clearConditionFields(...fields: string[]) {
+    if (!selectedEdge || !onEdgeChange) return;
+    const cond = { ...selectedEdge.condition };
+    for (const f of fields) delete cond[f as keyof typeof cond];
+    onEdgeChange({ ...selectedEdge, condition: cond });
   }
 </script>
 
@@ -121,10 +156,67 @@
     <p class="hint">Select a cell to edit</p>
   {/if}
 
-  {#if selectedEdgeId && !cell}
+  {#if selectedEdgeId && !cell && selectedEdge}
     <hr />
-    <h4>Selected Edge: {selectedEdgeId}</h4>
-    <button class="delete" onclick={() => onDeleteEdge?.(selectedEdgeId)}>Delete Edge</button>
+    <h4>Edge: {selectedEdge.id}</h4>
+    <p class="edge-route">{selectedEdge.from} → {selectedEdge.to}</p>
+    <label>
+      Condition Type
+      <select value={selectedEdge.condition.type} onchange={(e) => updateConditionType((e.target as HTMLSelectElement).value)}>
+        {#each conditionTypes as ct}
+          <option value={ct.value}>{ct.label}</option>
+        {/each}
+      </select>
+    </label>
+
+    {#if selectedEdge.condition.type === 'dice_total_in'}
+      <label>
+        Values (comma separated)
+        <input
+          value={(selectedEdge.condition.values ?? []).join(',')}
+          oninput={(e) => updateConditionField('values', (e.target as HTMLInputElement).value.split(',').map(v => parseInt(v.trim()) || 0).filter(v => v > 0))}
+          placeholder="1,3,5"
+        />
+      </label>
+    {/if}
+
+    {#if selectedEdge.condition.type === 'manual_choice' || selectedEdge.condition.type === 'pay_resource'}
+      <label>
+        Label
+        <input
+          value={selectedEdge.condition.label ?? ''}
+          oninput={(e) => updateConditionField('label', (e.target as HTMLInputElement).value)}
+          placeholder="Choose this path"
+        />
+      </label>
+    {/if}
+
+    {#if selectedEdge.condition.type === 'player_resource_at_least' || selectedEdge.condition.type === 'pay_resource'}
+      <label>
+        Resource
+        <input
+          value={selectedEdge.condition.resource ?? ''}
+          oninput={(e) => updateConditionField('resource', (e.target as HTMLInputElement).value)}
+          placeholder="gold, keys, health..."
+        />
+      </label>
+      <label>
+        Amount
+        <input
+          type="number"
+          value={selectedEdge.condition.amount ?? 1}
+          oninput={(e) => updateConditionField('amount', parseInt((e.target as HTMLInputElement).value) || 0)}
+          min="1"
+        />
+      </label>
+    {/if}
+
+    {#if selectedEdge.condition.type === 'dice_total_even' || selectedEdge.condition.type === 'dice_total_odd'}
+      <p class="hint">No additional fields needed for this condition.</p>
+    {/if}
+
+    <hr />
+    <button class="delete" onclick={() => onDeleteEdge?.(selectedEdgeId!)}>Delete Edge</button>
   {/if}
 </div>
 
@@ -207,6 +299,12 @@
   }
   .edge-row:hover {
     background: #1a2a4a;
+  }
+  .edge-route {
+    font-size: 12px;
+    color: #4fc3f7;
+    margin: 4px 0 12px;
+    font-family: monospace;
   }
   button.small {
     background: none;

@@ -390,3 +390,606 @@ func TestPlayerConfigNamesAndColors(t *testing.T) {
 		t.Fatalf("player 3 name not applied: %s", session.State.Players[2].Name)
 	}
 }
+
+// --- Edge condition tests ---
+
+func hasEventType(events []GameEvent, typ string) bool {
+	for _, e := range events {
+		if e.Type == typ {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAlwaysEdge(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-always",
+		Title: "Test Always",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "cell2", Title: "Cell 2", Type: "empty", X: 192, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "cell2", Condition: EdgeCondition{Type: "always"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	if err := ValidateDefinition(g); err != nil {
+		t.Fatalf("definition should validate: %v", err)
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+	events := session.MoveCurrentPlayer(1, []int{1}, 1)
+	if !hasEventType(events, "move") {
+		t.Fatal("expected move event")
+	}
+	if session.State.Players[0].PositionCellID != "cell2" {
+		t.Fatalf("expected position cell2, got %s", session.State.Players[0].PositionCellID)
+	}
+}
+
+func TestDiceTotalEven(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-dice-even",
+		Title: "Test Dice Total Even",
+		Board: Board{
+			Width: 576, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "branch", Title: "Branch", Type: "empty", X: 192, Y: 0},
+				{ID: "even_cell", Title: "Even", Type: "empty", X: 384, Y: 0},
+				{ID: "odd_cell", Title: "Odd", Type: "empty", X: 384, Y: 192},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "branch", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e2", From: "branch", To: "even_cell", Condition: EdgeCondition{Type: "dice_total_even"}},
+				{ID: "e3", From: "branch", To: "odd_cell", Condition: EdgeCondition{Type: "dice_total_odd"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+
+	// Even roll (2) → only dice_total_even edge is available → goes to even_cell
+	session := StartSession(g, players)
+	session.MoveCurrentPlayer(2, []int{2}, 2)
+	if session.State.Players[0].PositionCellID != "even_cell" {
+		t.Fatalf("even roll: expected even_cell, got %s", session.State.Players[0].PositionCellID)
+	}
+
+	// Odd roll (3) → only dice_total_odd edge is available → goes to odd_cell
+	session2 := StartSession(g, players)
+	session2.MoveCurrentPlayer(2, []int{3}, 3)
+	if session2.State.Players[0].PositionCellID != "odd_cell" {
+		t.Fatalf("odd roll: expected odd_cell, got %s", session2.State.Players[0].PositionCellID)
+	}
+}
+
+func TestDiceTotalOdd(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-dice-odd",
+		Title: "Test Dice Total Odd",
+		Board: Board{
+			Width: 576, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "branch", Title: "Branch", Type: "empty", X: 192, Y: 0},
+				{ID: "odd_target", Title: "Odd Target", Type: "empty", X: 384, Y: 0},
+				{ID: "even_target", Title: "Even Target", Type: "empty", X: 384, Y: 192},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "branch", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e_odd", From: "branch", To: "odd_target", Condition: EdgeCondition{Type: "dice_total_odd"}},
+				{ID: "e_even", From: "branch", To: "even_target", Condition: EdgeCondition{Type: "dice_total_even"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+
+	// Odd roll (5) → only dice_total_odd edge is available → goes to odd_target
+	session := StartSession(g, players)
+	session.MoveCurrentPlayer(2, []int{5}, 5)
+	if session.State.Players[0].PositionCellID != "odd_target" {
+		t.Fatalf("odd roll: expected odd_target, got %s", session.State.Players[0].PositionCellID)
+	}
+
+	// Even roll (4) → only dice_total_even edge is available → goes to even_target
+	session2 := StartSession(g, players)
+	session2.MoveCurrentPlayer(2, []int{4}, 4)
+	if session2.State.Players[0].PositionCellID != "even_target" {
+		t.Fatalf("even roll: expected even_target, got %s", session2.State.Players[0].PositionCellID)
+	}
+}
+
+func TestDiceTotalIn(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-dice-in",
+		Title: "Test Dice Total In",
+		Board: Board{
+			Width: 576, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "branch", Title: "Branch", Type: "empty", X: 192, Y: 0},
+				{ID: "in_cell", Title: "In", Type: "empty", X: 384, Y: 0},
+				{ID: "out_cell", Title: "Out", Type: "empty", X: 384, Y: 192},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "branch", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e_in", From: "branch", To: "in_cell", Condition: EdgeCondition{Type: "dice_total_in", Values: []int{1, 3, 5}}},
+				{ID: "e_out", From: "branch", To: "out_cell", Condition: EdgeCondition{Type: "always"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+
+	// Total=3 ∈ [1,3,5] → e_in available (along with always e_out). Both available, sorted by ID:
+	// "e_in" < "e_out" → e_in chosen first, goes to in_cell.
+	session := StartSession(g, players)
+	session.MoveCurrentPlayer(2, []int{3}, 3)
+	if session.State.Players[0].PositionCellID != "in_cell" {
+		t.Fatalf("total=3: expected in_cell, got %s", session.State.Players[0].PositionCellID)
+	}
+
+	// Total=2 ∉ [1,3,5] → only e_out available → goes to out_cell
+	session2 := StartSession(g, players)
+	session2.MoveCurrentPlayer(2, []int{2}, 2)
+	if session2.State.Players[0].PositionCellID != "out_cell" {
+		t.Fatalf("total=2: expected out_cell, got %s", session2.State.Players[0].PositionCellID)
+	}
+}
+
+func TestPlayerResourceAtLeast(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-res-at-least",
+		Title: "Test Resource At Least",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "target", Title: "Target", Type: "empty", X: 192, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "target", Condition: EdgeCondition{Type: "player_resource_at_least", Resource: "gold", Amount: intPtr(5)}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"gold": {Initial: 10},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+
+	// Player has gold=10 (>=5) → edge available → move succeeds
+	session := StartSession(g, players)
+	events := session.MoveCurrentPlayer(1, []int{1}, 1)
+	if hasEventType(events, "move_blocked") {
+		t.Fatal("edge should be available when player has enough gold")
+	}
+	if session.State.Players[0].PositionCellID != "target" {
+		t.Fatalf("expected target, got %s", session.State.Players[0].PositionCellID)
+	}
+
+	// Player has gold=0 (<5) → edge unavailable → move_blocked
+	session2 := StartSession(g, players)
+	session2.State.Players[0].Resources["gold"] = 0
+	events2 := session2.MoveCurrentPlayer(1, []int{1}, 1)
+	if !hasEventType(events2, "move_blocked") {
+		t.Fatal("expected move_blocked when player has insufficient gold")
+	}
+}
+
+func TestPayResource(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-pay-resource",
+		Title: "Test Pay Resource",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "target", Title: "Target", Type: "empty", X: 192, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "target", Condition: EdgeCondition{Type: "pay_resource", Resource: "gold", Amount: intPtr(3)}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"gold": {Initial: 10},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+	initialGold := session.State.Players[0].Resources["gold"]
+	if initialGold != 10 {
+		t.Fatalf("expected initial gold 10, got %d", initialGold)
+	}
+
+	events := session.MoveCurrentPlayer(1, []int{1}, 1)
+	if hasEventType(events, "move_blocked") {
+		t.Fatal("edge should be available when player has enough gold to pay")
+	}
+	if session.State.Players[0].PositionCellID != "target" {
+		t.Fatalf("expected target, got %s", session.State.Players[0].PositionCellID)
+	}
+	// 3 gold should be deducted
+	if session.State.Players[0].Resources["gold"] != 7 {
+		t.Fatalf("expected gold 7 after paying 3, got %d", session.State.Players[0].Resources["gold"])
+	}
+}
+
+func TestPayResourceInsufficient(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-pay-insufficient",
+		Title: "Test Pay Insufficient",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "target", Title: "Target", Type: "empty", X: 192, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "target", Condition: EdgeCondition{Type: "pay_resource", Resource: "gold", Amount: intPtr(5)}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"gold": {Initial: 2},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+	if session.State.Players[0].Resources["gold"] != 2 {
+		t.Fatalf("expected initial gold 2, got %d", session.State.Players[0].Resources["gold"])
+	}
+
+	events := session.MoveCurrentPlayer(1, []int{1}, 1)
+	if !hasEventType(events, "move_blocked") {
+		t.Fatal("expected move_blocked when player has insufficient gold to pay")
+	}
+	// Position should remain start
+	if session.State.Players[0].PositionCellID != "start" {
+		t.Fatalf("expected position to remain start, got %s", session.State.Players[0].PositionCellID)
+	}
+	// Gold should not have been deducted
+	if session.State.Players[0].Resources["gold"] != 2 {
+		t.Fatalf("expected gold to remain 2, got %d", session.State.Players[0].Resources["gold"])
+	}
+}
+
+func TestManualChoiceCreatesPendingAction(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-manual-choice",
+		Title: "Test Manual Choice",
+		Board: Board{
+			Width: 576, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "branch", Title: "Branch", Type: "empty", X: 192, Y: 0},
+				{ID: "left", Title: "Left Path", Type: "empty", X: 384, Y: 0},
+				{ID: "right", Title: "Right Path", Type: "empty", X: 384, Y: 192},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "branch", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e_left", From: "branch", To: "left", Condition: EdgeCondition{Type: "manual_choice", Label: "Go Left"}},
+				{ID: "e_right", From: "branch", To: "right", Condition: EdgeCondition{Type: "manual_choice", Label: "Go Right"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+
+	// Move 2 steps: start→branch (1 step), then at branch both manual_choice edges are available → pending action created
+	session.MoveCurrentPlayer(2, []int{2}, 2)
+
+	// Should not advance turn or move to a final cell — should pause for choice
+	if session.State.PendingAction == nil {
+		t.Fatal("expected pending action to be set")
+	}
+	if session.State.PendingAction.Type != "route_choice" {
+		t.Fatalf("expected route_choice, got %s", session.State.PendingAction.Type)
+	}
+	if len(session.State.PendingAction.Options) != 2 {
+		t.Fatalf("expected 2 options, got %d", len(session.State.PendingAction.Options))
+	}
+	if session.State.PendingMovement == nil {
+		t.Fatal("expected pending movement to be set")
+	}
+	if session.State.PendingMovement.RemainingSteps != 1 {
+		t.Fatalf("expected 1 remaining step, got %d", session.State.PendingMovement.RemainingSteps)
+	}
+	// Player should still be at branch
+	if session.State.Players[0].PositionCellID != "branch" {
+		t.Fatalf("expected position branch, got %s", session.State.Players[0].PositionCellID)
+	}
+
+	// Resolve by choosing left path
+	resolveEvents, err := session.ResolvePendingAction("e_left")
+	if err != nil {
+		t.Fatalf("unexpected error resolving route choice: %v", err)
+	}
+	if !hasEventType(resolveEvents, "route_chosen") {
+		t.Fatal("expected route_chosen event")
+	}
+	if session.State.Players[0].PositionCellID != "left" {
+		t.Fatalf("expected position left, got %s", session.State.Players[0].PositionCellID)
+	}
+	// Pending action and movement should be cleared
+	if session.State.PendingAction != nil {
+		t.Fatal("pending action should be cleared after resolve")
+	}
+	if session.State.PendingMovement != nil {
+		t.Fatal("pending movement should be cleared after resolve")
+	}
+}
+
+func TestMoveStepsNoOutgoingEdges(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-no-edges",
+		Title: "Test No Outgoing Edges",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "deadend", Title: "Dead End", Type: "empty", X: 192, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "deadend", Condition: EdgeCondition{Type: "always"}},
+				// deadend has no outgoing edges
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+
+	// Move 2 steps: start→deadend (1 step), then deadend has no edges → move_blocked
+	events := session.MoveCurrentPlayer(2, []int{2}, 2)
+	if !hasEventType(events, "move_blocked") {
+		t.Fatal("expected move_blocked event when no outgoing edges")
+	}
+	// Player should end up at deadend (movement stops but position is still updated to deadend)
+	if session.State.Players[0].PositionCellID != "deadend" {
+		t.Fatalf("expected position deadend, got %s", session.State.Players[0].PositionCellID)
+	}
+}
+
+func TestMoveStepsNoAvailableEdges(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-no-available-edges",
+		Title: "Test No Available Edges",
+		Board: Board{
+			Width: 576, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+				{ID: "branch", Title: "Branch", Type: "empty", X: 192, Y: 0},
+				{ID: "target", Title: "Target", Type: "empty", X: 384, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "branch", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e2", From: "branch", To: "target", Condition: EdgeCondition{Type: "dice_total_even"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+
+	// Move 2 steps with odd total (3): start→branch, then branch→target requires even total, so no available edge → move_blocked
+	events := session.MoveCurrentPlayer(2, []int{3}, 3)
+	if !hasEventType(events, "move_blocked") {
+		t.Fatal("expected move_blocked event when no available edges at fork")
+	}
+	// Player should end up at branch
+	if session.State.Players[0].PositionCellID != "branch" {
+		t.Fatalf("expected position branch, got %s", session.State.Players[0].PositionCellID)
+	}
+}
+
+func TestMoveStepsLeadsToUnknownCell(t *testing.T) {
+	g := &GameDefinition{
+		ID:    "test-unknown-cell",
+		Title: "Test Unknown Cell",
+		Board: Board{
+			Width: 384, Height: 384, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 0},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "nonexistent", Condition: EdgeCondition{Type: "always"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice:  DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+			},
+			StartBonus: 0,
+		},
+	}
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}}
+	session := StartSession(g, players)
+
+	events := session.MoveCurrentPlayer(1, []int{1}, 1)
+	if !hasEventType(events, "error") {
+		t.Fatal("expected error event when edge leads to unknown cell")
+	}
+	// Player should still be at start since movement was interrupted
+	if session.State.Players[0].PositionCellID != "start" {
+		t.Fatalf("expected position to remain start, got %s", session.State.Players[0].PositionCellID)
+	}
+}
+
+func TestBranchingDemoValidates(t *testing.T) {
+	branchingDemo := &GameDefinition{
+		ID:    "branching-demo",
+		Title: "Branching Demo",
+		Board: Board{
+			Width: 960, Height: 576, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 288},
+				{ID: "fork", Title: "Fork", Type: "empty", X: 288, Y: 288},
+				{ID: "left_path", Title: "Left Path", Type: "empty", X: 576, Y: 96},
+				{ID: "right_path", Title: "Right Path", Type: "empty", X: 576, Y: 480},
+				{ID: "merge", Title: "Merge", Type: "empty", X: 864, Y: 288},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "fork", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e2", From: "fork", To: "left_path", Condition: EdgeCondition{Type: "dice_total_even"}},
+				{ID: "e3", From: "fork", To: "right_path", Condition: EdgeCondition{Type: "dice_total_odd"}},
+				{ID: "e4", From: "left_path", To: "merge", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e5", From: "right_path", To: "merge", Condition: EdgeCondition{Type: "always"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice: DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+		},
+	}
+	if err := ValidateDefinition(branchingDemo); err != nil {
+		t.Fatalf("Branching Demo should validate: %v", err)
+	}
+}
+
+func TestManualBranchDemoValidates(t *testing.T) {
+	manualBranchDemo := &GameDefinition{
+		ID:    "manual-branch-demo",
+		Title: "Manual Branch Demo",
+		Board: Board{
+			Width: 960, Height: 576, CellSize: 96,
+			Cells: []CellDefinition{
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 288},
+				{ID: "fork", Title: "Fork", Type: "empty", X: 288, Y: 288},
+				{ID: "left_path", Title: "Left Path", Type: "empty", X: 576, Y: 96},
+				{ID: "right_path", Title: "Right Path", Type: "empty", X: 576, Y: 480},
+				{ID: "merge", Title: "Merge", Type: "empty", X: 864, Y: 288},
+			},
+			Edges: []EdgeDefinition{
+				{ID: "e1", From: "start", To: "fork", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e_left", From: "fork", To: "left_path", Condition: EdgeCondition{Type: "manual_choice", Label: "Go Left"}},
+				{ID: "e_right", From: "fork", To: "right_path", Condition: EdgeCondition{Type: "manual_choice", Label: "Go Right"}},
+				{ID: "e4", From: "left_path", To: "merge", Condition: EdgeCondition{Type: "always"}},
+				{ID: "e5", From: "right_path", To: "merge", Condition: EdgeCondition{Type: "always"}},
+			},
+		},
+		Rules: RuleSet{
+			Dice: DiceRule{Count: 1, Sides: 6},
+			Resources: map[string]ResourceRule{
+				"money": {Initial: 100},
+			},
+			CellTypes: map[string]CellTypeDef{
+				"start": {},
+				"empty": {},
+			},
+		},
+	}
+	if err := ValidateDefinition(manualBranchDemo); err != nil {
+		t.Fatalf("Manual Branch Demo should validate: %v", err)
+	}
+}

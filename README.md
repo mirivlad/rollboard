@@ -17,11 +17,15 @@ This makes the engine generic — adding a new game type requires only a JSON de
 - Two built-in demos:
   - **Mini-Monopoly**: property purchase, rent collection, bonus/penalty cells
   - **Dungeon Race**: health, gold, keys, traps, treasure, heal, finish line
+  - **Branching Demo**: dice-based even/odd branching routes
+  - **Manual Branch Demo**: player-chosen paths with resource costs
 - Game persistence via SQLite
 - Validation of game definitions
 - Event log for all game actions
 - Player elimination (bankruptcy)
 - Configurable start pass-through bonus
+- **Edge conditions**: dice_total_even, dice_total_odd, manual_choice, pay_resource, player_resource_at_least
+- **Branching routes**: route_choice pending action for player-selected paths
 
 ## Requirements
 

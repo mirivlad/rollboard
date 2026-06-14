@@ -100,8 +100,73 @@ func (s *GameSession) RollDice() (*RollResult, *GameEvent) {
 	return &RollResult{Rolls: rolls, Total: total}, &evt
 }
 
+// MoveContext contains information available for evaluating edge conditions
+// during a movement step.
+type MoveContext struct {
+	PlayerID       string
+	Dice           []int
+	Total          int
+	Step           int
+	RemainingSteps int
+}
+
+// evaluateCondition checks whether an edge is available given the current context.
+func (s *GameSession) evaluateCondition(e EdgeDefinition, ctx MoveContext) bool {
+	cond := e.Condition
+	switch cond.Type {
+	case "always", "":
+		return true
+	case "dice_total_even":
+		return ctx.Total%2 == 0
+	case "dice_total_odd":
+		return ctx.Total%2 != 0
+	case "dice_total_in":
+		for _, v := range cond.Values {
+			if ctx.Total == v {
+				return true
+			}
+		}
+		return false
+	case "player_resource_at_least":
+		player := s.getPlayerByID(ctx.PlayerID)
+		if player == nil {
+			return false
+		}
+		amt := 0
+		if cond.Amount != nil {
+			amt = *cond.Amount
+		}
+		return player.Resources[cond.Resource] >= amt
+	case "manual_choice":
+		return true
+	case "pay_resource":
+		player := s.getPlayerByID(ctx.PlayerID)
+		if player == nil {
+			return false
+		}
+		amt := 0
+		if cond.Amount != nil {
+			amt = *cond.Amount
+		}
+		return player.Resources[cond.Resource] >= amt
+	default:
+		return true
+	}
+}
+
+// MoveCurrentPlayer moves the current player step by step, evaluating edge
+// conditions at each step. Returns movement events.
 func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal int) []GameEvent {
-	var events []GameEvent
+	return s.moveSteps(steps, diceRolls, diceTotal, s.State.Players[s.State.CurrentPlayerIndex].PositionCellID, nil)
+}
+
+// moveSteps is the core step-by-step movement loop. It evaluates edge conditions
+// and pauses for route_choice when multiple manual-choice edges are available.
+func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromCellID string, existingEvents []GameEvent) []GameEvent {
+	events := existingEvents
+	if events == nil {
+		events = []GameEvent{}
+	}
 	player := &s.State.Players[s.State.CurrentPlayerIndex]
 
 	if player.Bankrupt {
@@ -109,7 +174,6 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 		return nil
 	}
 
-	// Handle steps <= 0 — no movement, but still record the dice
 	if steps <= 0 {
 		events = append(events, NewGameEvent("move",
 			fmt.Sprintf("%s stayed in place (rolled %d)", player.Name, diceTotal),
@@ -128,52 +192,135 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 	}
 
 	edgeMap := s.Definition.Board.buildEdgeMap()
-
 	passedStart := false
 	pathCells := []*CellDefinition{}
 
-	currentCell := s.Definition.Board.getCellByID(player.PositionCellID)
+	currentCell := s.Definition.Board.getCellByID(fromCellID)
 	if currentCell == nil {
 		events = append(events, NewGameEvent("error",
 			fmt.Sprintf("player %s position cell '%s' not found in board definition",
-				player.Name, player.PositionCellID), nil))
+				player.Name, fromCellID), nil))
 		return events
 	}
 
 	for step := 0; step < steps; step++ {
 		edges := edgeMap[currentCell.ID]
 		if len(edges) == 0 {
+			events = append(events, NewGameEvent("move_blocked",
+				fmt.Sprintf("%s has no path from %s (rolled %d, %d steps taken, %d remaining)",
+					player.Name, currentCell.ID, diceTotal, step, steps-step), nil))
 			break
 		}
 
-		var nextEdge *EdgeDefinition
+		ctx := MoveContext{
+			PlayerID:       player.ID,
+			Dice:           diceRolls,
+			Total:          diceTotal,
+			Step:           step,
+			RemainingSteps: steps - step,
+		}
+
+		var available []EdgeDefinition
 		for _, e := range edges {
-			if e.Condition.Type == "always" || e.Condition.Type == "" {
-				nextEdge = &e
+			if s.evaluateCondition(e, ctx) {
+				available = append(available, e)
+			}
+		}
+
+		if len(available) == 0 {
+			events = append(events, NewGameEvent("move_blocked",
+				fmt.Sprintf("%s has no available path at %s (rolled %d, %d steps taken)",
+					player.Name, currentCell.ID, diceTotal, step), nil))
+			break
+		}
+
+		if len(available) == 1 {
+			nextEdge := available[0]
+			if nextEdge.Condition.Type == "pay_resource" {
+				if nextEdge.Condition.Resource != "" && nextEdge.Condition.Amount != nil {
+					player.Resources[nextEdge.Condition.Resource] -= *nextEdge.Condition.Amount
+				}
+			}
+			nextCell := s.Definition.Board.getCellByID(nextEdge.To)
+			if nextCell == nil {
+				events = append(events, NewGameEvent("error",
+					fmt.Sprintf("edge '%s' leads to unknown cell '%s'", nextEdge.ID, nextEdge.To), nil))
+				break
+			}
+			pathCells = append(pathCells, nextCell)
+			currentCell = nextCell
+			continue
+		}
+
+		hasManualChoice := false
+		for _, e := range available {
+			if e.Condition.Type == "manual_choice" || e.Condition.Label != "" {
+				hasManualChoice = true
 				break
 			}
 		}
-		if nextEdge == nil {
-			nextEdge = &edges[0]
+
+		if hasManualChoice {
+			player.PositionCellID = currentCell.ID
+
+			pathIDs := make([]string, len(pathCells))
+			for i, pc := range pathCells {
+				pathIDs[i] = pc.ID
+			}
+
+			options := make([]ActionOption, 0, len(available))
+			for _, e := range available {
+				label := e.Condition.Label
+				if label == "" {
+					label = fmt.Sprintf("%s → %s", e.From, e.To)
+				}
+				options = append(options, ActionOption{
+					ID:    e.ID,
+					Title: label,
+				})
+			}
+
+			s.State.PendingAction = &PendingAction{
+				Type:     "route_choice",
+				PlayerID: player.ID,
+				Title:    "Choose path",
+				CellID:   currentCell.ID,
+				Options:  options,
+			}
+
+			s.State.PendingMovement = &PendingMovement{
+				PlayerID:       player.ID,
+				CurrentCellID:  currentCell.ID,
+				RemainingSteps: steps - step,
+				Dice:           diceRolls,
+				Total:          diceTotal,
+				PathSoFar:      pathIDs,
+			}
+
+			return events
 		}
 
+		nextEdge := available[0]
+		if nextEdge.Condition.Type == "pay_resource" {
+			if nextEdge.Condition.Resource != "" && nextEdge.Condition.Amount != nil {
+				player.Resources[nextEdge.Condition.Resource] -= *nextEdge.Condition.Amount
+			}
+		}
+		events = append(events, NewGameEvent("move_ambiguous",
+			fmt.Sprintf("Multiple paths from %s, selected %s → %s",
+				currentCell.ID, nextEdge.From, nextEdge.To), nil))
 		nextCell := s.Definition.Board.getCellByID(nextEdge.To)
 		if nextCell == nil {
 			events = append(events, NewGameEvent("error",
 				fmt.Sprintf("edge '%s' leads to unknown cell '%s'", nextEdge.ID, nextEdge.To), nil))
 			break
 		}
-
 		pathCells = append(pathCells, nextCell)
 		currentCell = nextCell
 	}
 
 	finalCell := currentCell
 
-	// Check for start pass-through (not starting position)
-	// pathCells includes all cells along the path; the last one is finalCell.
-	// Only check intermediate cells (0 .. n-2) for pass-through.
-	// If pathCells has only 1 element, there are no intermediate cells to check.
 	intermediateCells := pathCells
 	if len(intermediateCells) > 1 {
 		intermediateCells = pathCells[:len(pathCells)-1]
@@ -193,8 +340,7 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 	}
 
 	events = append(events, NewGameEvent("move",
-		fmt.Sprintf("%s moved from %s to %s",
-			player.Name, oldPos, finalCell.ID),
+		fmt.Sprintf("%s moved from %s to %s", player.Name, oldPos, finalCell.ID),
 		map[string]any{
 			"from":     oldPos,
 			"to":       finalCell.ID,
@@ -204,7 +350,6 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 			"total":    diceTotal,
 		}))
 
-	// Start pass-through bonus
 	if passedStart {
 		bonus := s.Definition.Rules.StartBonus
 		res := s.Definition.Rules.StartBonusResource
@@ -215,7 +360,6 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 		}
 	}
 
-	// Execute OnPass actions for each passed cell (except final)
 	passedCells := pathCells
 	if len(passedCells) > 1 {
 		passedCells = pathCells[:len(pathCells)-1]
@@ -227,13 +371,11 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 		}
 	}
 
-	// Execute OnLand actions for final cell
 	if finalCell != nil && len(finalCell.OnLand) > 0 {
 		landEvents := s.executeActions(finalCell.OnLand, player, finalCell)
 		events = append(events, landEvents...)
 	}
 
-	// Advance turn if no pending action was set
 	if s.State.PendingAction == nil {
 		s.advanceTurn()
 	}
@@ -242,7 +384,6 @@ func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal in
 }
 
 // executeActions runs a list of action definitions and returns events.
-// If a pending action is set during execution, it stops processing further actions.
 func (s *GameSession) executeActions(actions []ActionDefinition, player *PlayerState, cell *CellDefinition) []GameEvent {
 	var events []GameEvent
 	for _, a := range actions {
@@ -307,7 +448,6 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		if targetPlayer == nil || targetPlayer.Bankrupt {
 			return nil
 		}
-
 		actual := amount
 		if player.Resources[res] < actual {
 			actual = player.Resources[res]
@@ -380,12 +520,20 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 	}
 }
 
-// ResolvePendingAction executes the chosen option's Then actions.
 func (s *GameSession) ResolvePendingAction(actionID string) ([]GameEvent, error) {
 	if s.State.PendingAction == nil {
 		return nil, fmt.Errorf("no pending action")
 	}
 
+	switch s.State.PendingAction.Type {
+	case "route_choice":
+		return s.resolveRouteChoice(actionID)
+	default:
+		return s.resolveStandardChoice(actionID)
+	}
+}
+
+func (s *GameSession) resolveStandardChoice(actionID string) ([]GameEvent, error) {
 	var chosen *ActionOption
 	for i := range s.State.PendingAction.Options {
 		if s.State.PendingAction.Options[i].ID == actionID {
@@ -409,6 +557,110 @@ func (s *GameSession) ResolvePendingAction(actionID string) ([]GameEvent, error)
 	events := s.executeActions(chosen.Then, player, cell)
 
 	s.advanceTurn()
+	return events, nil
+}
+
+func (s *GameSession) resolveRouteChoice(edgeID string) ([]GameEvent, error) {
+	pm := s.State.PendingMovement
+	if pm == nil {
+		return nil, fmt.Errorf("no pending movement context")
+	}
+
+	edgeMap := s.Definition.Board.buildEdgeMap()
+	currentEdges := edgeMap[pm.CurrentCellID]
+	var chosenEdge *EdgeDefinition
+	for _, e := range currentEdges {
+		if e.ID == edgeID {
+			chosenEdge = &e
+			break
+		}
+	}
+	if chosenEdge == nil {
+		return nil, fmt.Errorf("edge '%s' not found from cell '%s'", edgeID, pm.CurrentCellID)
+	}
+
+	ctx := MoveContext{
+		PlayerID:       pm.PlayerID,
+		Dice:           pm.Dice,
+		Total:          pm.Total,
+		Step:           len(pm.PathSoFar),
+		RemainingSteps: pm.RemainingSteps,
+	}
+	if !s.evaluateCondition(*chosenEdge, ctx) {
+		return nil, fmt.Errorf("edge condition no longer met")
+	}
+
+	player := s.getPlayerByID(pm.PlayerID)
+	if player == nil {
+		return nil, fmt.Errorf("player not found")
+	}
+
+	if chosenEdge.Condition.Type == "pay_resource" {
+		amt := 0
+		if chosenEdge.Condition.Amount != nil {
+			amt = *chosenEdge.Condition.Amount
+		}
+		if chosenEdge.Condition.Resource != "" {
+			if player.Resources[chosenEdge.Condition.Resource] < amt {
+				return nil, fmt.Errorf("insufficient %s for pay_resource", chosenEdge.Condition.Resource)
+			}
+			player.Resources[chosenEdge.Condition.Resource] -= amt
+		}
+	}
+
+	nextCell := s.Definition.Board.getCellByID(chosenEdge.To)
+	if nextCell == nil {
+		return nil, fmt.Errorf("edge '%s' leads to unknown cell '%s'", chosenEdge.ID, chosenEdge.To)
+	}
+
+	var events []GameEvent
+	label := chosenEdge.Condition.Label
+	if label == "" {
+		label = fmt.Sprintf("%s → %s", chosenEdge.From, chosenEdge.To)
+	}
+	events = append(events, NewGameEvent("route_chosen",
+		fmt.Sprintf("%s chose path: %s", player.Name, label), nil))
+
+	player.PositionCellID = nextCell.ID
+
+	pathIDs := append(pm.PathSoFar, nextCell.ID)
+	pm.PathSoFar = pathIDs
+	pm.CurrentCellID = nextCell.ID
+	pm.RemainingSteps--
+
+	s.State.PendingAction = nil
+
+	if pm.RemainingSteps > 0 {
+		moveEvents := s.moveSteps(pm.RemainingSteps, pm.Dice, pm.Total, nextCell.ID, events)
+		if s.State.PendingMovement != nil && s.State.PendingAction != nil {
+			return moveEvents, nil
+		}
+		events = moveEvents
+		s.State.PendingMovement = nil
+		return events, nil
+	}
+
+	if nextCell != nil && len(nextCell.OnLand) > 0 {
+		landEvents := s.executeActions(nextCell.OnLand, player, nextCell)
+		events = append(events, landEvents...)
+	}
+
+	events = append(events, NewGameEvent("move",
+		fmt.Sprintf("%s moved from %s to %s", player.Name, pm.PathSoFar[0], nextCell.ID),
+		map[string]any{
+			"from":     pm.PathSoFar[0],
+			"to":       nextCell.ID,
+			"path":     pathIDs,
+			"playerId": player.ID,
+			"dice":     pm.Dice,
+			"total":    pm.Total,
+		}))
+
+	if s.State.PendingAction == nil {
+		s.advanceTurn()
+	}
+
+	s.State.PendingMovement = nil
 	return events, nil
 }
 
@@ -446,7 +698,6 @@ func (s *GameSession) CurrentPlayer() *PlayerState {
 	return &s.State.Players[s.State.CurrentPlayerIndex]
 }
 
-// getPlayerByID finds a player by ID.
 func (s *GameSession) getPlayerByID(id string) *PlayerState {
 	for i := range s.State.Players {
 		if s.State.Players[i].ID == id {

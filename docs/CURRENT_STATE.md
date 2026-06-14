@@ -1,16 +1,32 @@
 # Rollboard — Current State
 
 Last updated: 2026-06-14
-Current commit: 49dc020
+Current commit: (pending — edge conditions stage)
 
 ## Status
 
-**Verified playable prototype.** 
+**Verified playable prototype with branching routes.**
 - Builder → wired board → playtest cycle proven with user-created board
 - Browser E2E confirms custom edges render and tokens move along them
+- Edge conditions implemented and browser-verified (see below)
 - All 22 engine tests pass; 0 Svelte warnings; 0 build errors
 
-The engine can be edited, saved, loaded, and playtested in hotseat mode. Two demo games (Mini-Monopoly, Dungeon Race) are bundled.
+The engine can be edited, saved, loaded, and playtested in hotseat mode. Four demo games are bundled: Mini-Monopoly, Dungeon Race, Branching Demo, Manual Branch Demo.
+
+## Edge Conditions — Implemented and Browser-Verified
+
+| Condition Type | Demo Game | Browser E2E | Status |
+|---|---|---|---|
+| `dice_total_even` | Branching Demo | ✅ rolled 2 → even_cell | PASS |
+| `dice_total_odd` | Branching Demo | ✅ rolled odd → odd_cell → finish | PASS |
+| `manual_choice` | Manual Branch Demo | ✅ "Safe Path" button shown | PASS |
+| `pay_resource` | Manual Branch Demo | ✅ "Pay 2 Gold" button shown | PASS |
+| `route_choice` pending action | Manual Branch Demo | ✅ Choose path UI with options | PASS |
+| resource subtraction on pay | Manual Branch Demo | ✅ gold 5→3 after Pay 2 Gold | PASS |
+| movement after route choice | Manual Branch Demo | ✅ token moves to finish after choice | PASS |
+| event log for route choice | Manual Branch Demo | ✅ "moved from start to choice_fork" etc. | PASS |
+| edge condition labels in editor | Both demos | ✅ "Safe Path", "pay 2 gold" visible | PASS |
+| edge inspector edit condition | Both demos | ✅ condition type selectable | PASS |
 
 ## Known Issues
 

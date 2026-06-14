@@ -45,6 +45,7 @@ type EdgeCondition struct {
 	Values   []int  `json:"values,omitempty"`
 	Resource string `json:"resource,omitempty"`
 	Amount   *int   `json:"amount,omitempty"`
+	Label    string `json:"label,omitempty"`
 }
 
 type RuleSet struct {

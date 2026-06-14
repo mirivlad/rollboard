@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EdgeDefinition, CellDefinition } from '../lib/types';
+  import type { EdgeDefinition, CellDefinition, EdgeCondition } from '../lib/types';
 
   let { edges, cells, cellSize, selectedEdgeId, onSelect }: {
     edges: EdgeDefinition[];
@@ -10,6 +10,19 @@
   } = $props();
 
   let cellMap = $derived(new Map(cells.map(c => [c.id, c])));
+
+  function condLabel(cond: EdgeCondition): string {
+    switch (cond.type) {
+      case 'always': return '';
+      case 'dice_total_even': return 'even';
+      case 'dice_total_odd': return 'odd';
+      case 'dice_total_in': return `in[${(cond.values ?? []).join(',')}]`;
+      case 'player_resource_at_least': return `${cond.resource}≥${cond.amount ?? 1}`;
+      case 'manual_choice': return cond.label ?? 'choice';
+      case 'pay_resource': return `pay ${cond.amount ?? 1} ${cond.resource ?? '?'}`;
+      default: return cond.type;
+    }
+  }
 
   function edgePoints(edge: EdgeDefinition): { x1: number; y1: number; x2: number; y2: number } | null {
     const from = cellMap.get(edge.from);
@@ -61,6 +74,18 @@
         marker-end="url(#arrowhead)"
         style="pointer-events: none;"
       />
+      <!-- Condition label -->
+      <text
+        x={(pts.x1 + pts.x2) / 2}
+        y={(pts.y1 + pts.y2) / 2 - 8}
+        text-anchor="middle"
+        fill="#aaa"
+        font-size="11"
+        font-family="monospace"
+        style="pointer-events: none;"
+      >
+        {condLabel(edge.condition)}
+      </text>
     {/if}
   {/each}
   <defs>

@@ -370,3 +370,80 @@ Both Dungeon Race (prebuilt) and Custom Wired Board (user-created) are verified.
 No stale toolbar state when switching games.
 No Svelte 5 warnings remaining.
 Browser E2E uses real UI interactions (click, type, screenshot), not API-only.
+
+---
+
+## Edge Conditions / Branching Routes E2E
+
+Date: 2026-06-14 (seventh iteration — edge conditions stage)
+Browser: Chromium via Hermes Agent (Playwright, headless)
+Tester: OWL agent
+
+### Manual Branch Demo
+
+Game: Manual Branch Demo (1d3, gold=5 start, choice_fork with 2 outgoing edges)
+
+#### Setup
+- [x] Game loaded from list (not "Demo" button — that creates duplicate without id)
+- [x] Playtest button active (game has id from list)
+- [x] 2 players started
+
+#### Turn 1 — Player 1
+- [x] Start Turn → Roll Dice → rolled 1
+- [x] Player 1 moved from start to choice_fork
+- [x] No route_choice (only 1 step, landed on fork)
+- [x] Pass to Next Player
+
+#### Turn 2 — Player 2
+- [x] Start Turn → Roll Dice → rolled 3
+- [x] **route_choice pending action appeared** with "Choose path:" heading
+- [x] **"Safe Path" button** visible (manual_choice edge)
+- [x] **"Pay 2 Gold" button** visible (pay_resource edge)
+- [x] Clicked "Pay 2 Gold"
+- [x] **gold: 5→3** (2 gold subtracted)
+- [x] Player 2 moved to finish
+- [x] **Game Over** screen shown
+- [x] Event Log: "Player 2 rolled 3", "Player 1 moved from start to choice_fork"
+
+### Branching Demo
+
+Game: Branching Demo (1d6, fork→even_cell/odd_cell→finish)
+
+#### Turn 1 — Player 1
+- [x] Roll Dice → rolled **2 (even)**
+- [x] **Player 1 moved from start to even_cell** (dice_total_even condition)
+- [x] No player choice — automatic routing based on dice parity
+- [x] Pass to Next Player
+
+#### Turn 2 — Player 2
+- [x] Roll Dice → result sent to odd_cell (dice_total_odd)
+- [x] Player 2 reached finish → Game Over
+
+### Screenshots saved
+
+`artifacts/browser-smoke/` (all real PNG):
+- `manual-branch-editor.png` — editor with edge labels
+- `manual-branch-playtest-before-roll.png` — playtest at start
+- `manual-branch-playtest-gold5.png` — gold:5 visible for both players
+- `manual-branch-playtest-board.png` — playtest board layout
+- `manual-branch-route-choice.png` — route choice with Safe Path / Pay 2 Gold buttons
+- `manual-branch-gameover.png` — Game Over with gold:5 / gold:3
+- `branching-even-result.png` — even branching result
+
+### Bugs found
+
+1. **"Demo Manual Branch" button creates game without id** — clicking it loads a fresh copy without the saved game's id, causing Playtest button to be disabled (`disabled={!currentGame.id}`). Save then fails with UNIQUE constraint. Workaround: open game from list instead.
+   - **Not fixed** (out of scope — demo buttons should probably load the existing game, not create new)
+
+2. **Playtest board may not render after Roll Dice** — on some rolls the board SVG doesn't appear (empty page snapshot). Likely a Vite HMR timing issue.
+   - **Not fixed** (intermittent, dev-server only)
+
+### Verification
+
+To be run after docs update:
+- `make smoke ×3` — expected 6/6 each
+- `make check` — expected PASS
+- `make test` — expected 22/22 PASS
+- `npm run check` — expected 0 errors, 0 warnings
+- `npm run build` — expected OK
+- Process cleanup — expected no stale processes

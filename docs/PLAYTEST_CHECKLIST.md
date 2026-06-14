@@ -161,3 +161,29 @@ Remaining issues:
 ```
 
 Do not mark unchecked items as passed.
+
+---
+
+## Edge Conditions / Branching Routes
+
+- [x] Edge condition labels visible in editor (Safe Path, pay 2 gold)
+- [x] Edge Inspector can edit condition type (manual_choice, pay_resource, dice_total_even, dice_total_odd, always)
+- [x] dice_total_even works — rolled 2 → even_cell
+- [x] dice_total_odd works — rolled odd → odd_cell → finish
+- [x] manual_choice creates route_choice pending action with option buttons
+- [x] pay_resource checks resource availability before showing option
+- [x] pay_resource subtracts resource after choice (gold 5→3)
+- [x] movement continues after route choice to selected cell
+- [x] event log records route/movement/action events
+- [x] browser E2E screenshots saved in artifacts/browser-smoke/
+
+### Edge Condition Types Implemented
+
+| Type | Description | Demo |
+|---|---|---|
+| `always` | Always available | All |
+| `dice_total_even` | Available when dice total is even | Branching Demo |
+| `dice_total_odd` | Available when dice total is odd | Branching Demo |
+| `manual_choice` | Player chooses manually | Manual Branch Demo |
+| `pay_resource` | Requires spending resource to use | Manual Branch Demo |
+| `player_resource_at_least` | Available if player has ≥ N resource | (engine only) |

@@ -101,3 +101,53 @@ User clicks Roll → POST /api/sessions/:id/roll
   All cell coordinates must align to cellSize grid. Edges connect cell centers.
 - **No game-specific runtime code**: all cell behavior is driven by ActionDefinition data.
 - **Single coordinate system**: playtest and editor use the same board geometry.
+
+## Edge Conditions
+
+Edges can have conditions that determine whether they are available for traversal.
+
+### Condition Types
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `always` | — | Always available (default) |
+| `dice_total_even` | — | Available when dice total is even |
+| `dice_total_odd` | — | Available when dice total is odd |
+| `manual_choice` | `label` | Player manually chooses this path; triggers `route_choice` pending action |
+| `pay_resource` | `resource`, `amount`, `label` | Requires spending a resource to use; triggers `route_choice` pending action |
+| `player_resource_at_least` | `resource`, `amount` | Available only if player has ≥ N of the resource |
+
+### Route Choice Flow
+
+When movement reaches a cell with multiple available outgoing edges that have `manual_choice` or `pay_resource` conditions:
+
+1. Movement stops at the current cell
+2. Engine creates a `PendingAction` with `type: "route_choice"` and `options` array
+3. Frontend renders option buttons (one per available edge)
+4. Player clicks a button → frontend sends `POST /api/sessions/{id}/actions` with the chosen edge ID
+5. Engine validates the choice, subtracts resources if `pay_resource`, and continues movement
+6. If `pay_resource` and insufficient resources, returns error
+
+### pay_resource vs player_resource_at_least
+
+- `player_resource_at_least`: **gate** — edge is only available if player has enough resource. No cost to use.
+- `pay_resource`: **cost** — edge is always shown, but choosing it subtracts the resource amount.
+
+### MoveContext
+
+The `MoveContext` is passed to `evaluateCondition()` and provides:
+- `Dice`: the dice rolls for this move
+- `Total`: sum of dice rolls
+- `Player`: the current player state (for resource checks)
+- `Step`: current step number in multi-step movement
+
+### PendingMovement
+
+When a `route_choice` interrupts movement mid-path, the engine saves a `PendingMovement`:
+- `PlayerID`: whose movement was interrupted
+- `CurrentCellID`: cell where movement stopped
+- `RemainingSteps`: steps left to take after choice
+- `Dice`, `Total`: original dice roll
+- `PathSoFar`: cells already traversed
+
+This allows the engine to resume movement from the chosen cell with remaining steps.

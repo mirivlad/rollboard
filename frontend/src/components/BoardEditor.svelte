@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GameDefinition, CellDefinition } from '../lib/types';
+  import type { GameDefinition, CellDefinition, EdgeDefinition } from '../lib/types';
   import BoardCanvas from './BoardCanvas.svelte';
   import CellInspector from './CellInspector.svelte';
 
@@ -178,6 +178,15 @@
     game.board.edges = game.board.edges.filter(e => e.id !== id);
     selectedEdgeId = undefined;
   }
+
+  function handleEdgeChange(edge: EdgeDefinition) {
+    const idx = game.board.edges.findIndex(e => e.id === edge.id);
+    if (idx !== -1) {
+      const edges = [...game.board.edges];
+      edges[idx] = edge;
+      game.board.edges = edges;
+    }
+  }
 </script>
 
 <div class="editor">
@@ -243,6 +252,7 @@
       onDeleteEdge={deleteEdge}
       {selectedEdgeId}
       onEdgeSelect={handleEdgeSelect}
+      onEdgeChange={handleEdgeChange}
     />
   </div>
 </div>

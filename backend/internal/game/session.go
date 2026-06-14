@@ -11,16 +11,26 @@ type GameSession struct {
 	State       GameState       `json:"state"`
 }
 
+type PendingMovement struct {
+	PlayerID       string   `json:"playerId"`
+	CurrentCellID  string   `json:"currentCellId"`
+	RemainingSteps int      `json:"remainingSteps"`
+	Dice           []int    `json:"dice"`
+	Total          int      `json:"total"`
+	PathSoFar      []string `json:"pathSoFar"`
+}
+
 type GameState struct {
-	CurrentPlayerIndex int                `json:"currentPlayerIndex"`
-	Players            []PlayerState      `json:"players"`
+	CurrentPlayerIndex int                  `json:"currentPlayerIndex"`
+	Players            []PlayerState        `json:"players"`
 	CellStates         map[string]CellState `json:"cellStates"`
-	TurnNumber         int                `json:"turnNumber"`
-	RoundNumber        int                `json:"roundNumber"`
-	Status             string             `json:"status"`
-	WinnerPlayerID     string             `json:"winnerPlayerId,omitempty"`
-	Log                []GameEvent        `json:"log"`
-	PendingAction      *PendingAction     `json:"pendingAction,omitempty"`
+	TurnNumber         int                  `json:"turnNumber"`
+	RoundNumber        int                  `json:"roundNumber"`
+	Status             string               `json:"status"`
+	WinnerPlayerID     string               `json:"winnerPlayerId,omitempty"`
+	Log                []GameEvent          `json:"log"`
+	PendingAction      *PendingAction       `json:"pendingAction,omitempty"`
+	PendingMovement    *PendingMovement     `json:"pendingMovement,omitempty"`
 }
 
 type PlayerState struct {

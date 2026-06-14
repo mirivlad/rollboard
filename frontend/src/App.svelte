@@ -2,7 +2,7 @@
   import { mount } from 'svelte';
   import type { GameDefinition, GameSummary, GameSession } from './lib/types';
   import { api } from './lib/api';
-  import { createDefaultGame, createMiniMonopolyDemo, createDungeonRaceDemo } from './lib/defaults';
+  import { createDefaultGame, createMiniMonopolyDemo, createDungeonRaceDemo, createBranchingDemo, createManualBranchDemo } from './lib/defaults';
   import BoardEditor from './components/BoardEditor.svelte';
   import PlaytestPanel from './components/PlaytestPanel.svelte';
 
@@ -61,6 +61,20 @@
 
   async function createDungeonRace() {
     const g = createDungeonRaceDemo();
+    currentGame = g;
+    currentSession = null;
+    view = 'editor';
+  }
+
+  async function createBranching() {
+    const g = createBranchingDemo();
+    currentGame = g;
+    currentSession = null;
+    view = 'editor';
+  }
+
+  async function createManualBranch() {
+    const g = createManualBranchDemo();
     currentGame = g;
     currentSession = null;
     view = 'editor';
@@ -168,6 +182,8 @@
         <button onclick={newGame}>+ New Game</button>
         <button onclick={createMiniMonopoly}>Demo Mini-Monopoly</button>
         <button onclick={createDungeonRace}>Demo Dungeon Race</button>
+        <button onclick={createBranching}>Demo Branching</button>
+        <button onclick={createManualBranch}>Demo Manual Branch</button>
       {/if}
       {#if view === 'editor' && currentGame}
         <button onclick={saveGame}>Save</button>

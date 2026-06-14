@@ -231,3 +231,97 @@ export function createDungeonRaceDemo(): GameDefinition {
     },
   };
 }
+
+export function createBranchingDemo(): GameDefinition {
+  const cell = (id: string, title: string, type: string, x: number, y: number, color: string, onLand: ActionDefinition[] = []) => ({
+    id, title, type, x, y, visual: { baseColor: color, baseImage: '' }, fields: {}, onLand,
+  });
+
+  const e = (id: string, from: string, to: string, condition: any) => ({ id, from, to, condition });
+
+  return {
+    id: '',
+    title: 'Branching Demo',
+    version: 1,
+    board: {
+      width: 768,
+      height: 672,
+      cellSize: 96,
+      cells: [
+        cell('start', 'Start', 'start', 96, 96, '#4CAF50'),
+        cell('fork', 'Fork', 'empty', 96, 288, '#FF9800'),
+        cell('even_cell', 'Even Path', 'empty', 0, 480, '#E3F2FD'),
+        cell('odd_cell', 'Odd Path', 'empty', 192, 480, '#FFE0B2'),
+        cell('finish', 'Finish', 'finish', 96, 576, '#FFD700', [
+          action('finish_game'),
+        ]),
+      ],
+      edges: [
+        e('e1', 'start', 'fork', { type: 'always' }),
+        e('e2', 'fork', 'even_cell', { type: 'dice_total_even' }),
+        e('e3', 'fork', 'odd_cell', { type: 'dice_total_odd' }),
+        e('e4', 'even_cell', 'finish', { type: 'always' }),
+        e('e5', 'odd_cell', 'finish', { type: 'always' }),
+      ],
+    },
+    rules: {
+      dice: { count: 1, sides: 6 },
+      resources: {},
+      cellTypes: {
+        start: { title: 'Start', fields: {} },
+        empty: { title: 'Empty', fields: {} },
+        finish: { title: 'Finish', fields: {} },
+      },
+      startBonus: 0,
+      startBonusResource: '',
+    },
+  };
+}
+
+export function createManualBranchDemo(): GameDefinition {
+  const cell = (id: string, title: string, type: string, x: number, y: number, color: string, onLand: ActionDefinition[] = []) => ({
+    id, title, type, x, y, visual: { baseColor: color, baseImage: '' }, fields: {}, onLand,
+  });
+
+  const e = (id: string, from: string, to: string, condition: any) => ({ id, from, to, condition });
+
+  return {
+    id: '',
+    title: 'Manual Branch Demo',
+    version: 1,
+    board: {
+      width: 768,
+      height: 768,
+      cellSize: 96,
+      cells: [
+        cell('start', 'Start', 'start', 96, 96, '#4CAF50'),
+        cell('choice_fork', 'Choice Fork', 'empty', 96, 288, '#FF9800'),
+        cell('safe', 'Safe Path', 'empty', 0, 480, '#C8E6C9'),
+        cell('shortcut', 'Shortcut', 'empty', 192, 480, '#FFCDD2'),
+        cell('finish', 'Finish', 'finish', 96, 576, '#FFD700', [
+          action('finish_game'),
+        ]),
+      ],
+      edges: [
+        e('e1', 'start', 'choice_fork', { type: 'always' }),
+        e('e2', 'choice_fork', 'safe', { type: 'manual_choice', label: 'Safe Path' }),
+        e('e3', 'choice_fork', 'shortcut', { type: 'pay_resource', resource: 'gold', amount: 2, label: 'Pay 2 Gold' }),
+        e('e4', 'safe', 'finish', { type: 'always' }),
+        e('e5', 'shortcut', 'finish', { type: 'always' }),
+      ],
+    },
+    rules: {
+      dice: { count: 1, sides: 3 },
+      resources: {
+        gold: { initial: 5, min: 0 },
+      },
+      cellTypes: {
+        start: { title: 'Start', fields: {} },
+        empty: { title: 'Empty', fields: {} },
+        finish: { title: 'Finish', fields: {} },
+      },
+      startBonus: 0,
+      startBonusResource: '',
+    },
+  };
+}

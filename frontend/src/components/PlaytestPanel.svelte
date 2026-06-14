@@ -372,7 +372,11 @@
           <div class="panel actions">
             {#if diceState === 'idle' && !isAnimating}
               {#if currentSession.state.pendingAction}
-                <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {#if currentSession.state.pendingAction.type === 'route_choice'}
+                  <h3>Choose path:</h3>
+                {:else}
+                  <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
                     class="action-btn"
@@ -406,7 +410,11 @@
                 <p class="dice-total">Total: <strong>{lastTotal}</strong></p>
               </div>
               {#if currentSession.state.pendingAction}
-                <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {#if currentSession.state.pendingAction.type === 'route_choice'}
+                  <h3>Choose path:</h3>
+                {:else}
+                  <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
                     class="action-btn"
