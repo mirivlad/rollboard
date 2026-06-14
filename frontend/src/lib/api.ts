@@ -8,8 +8,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    let errorMsg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      errorMsg = body.error || errorMsg;
+    } catch {
+      const text = await res.text().catch(() => '');
+      errorMsg = text || res.statusText;
+    }
+    throw new Error(errorMsg);
   }
   return res.json();
 }

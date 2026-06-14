@@ -68,8 +68,12 @@
 
 <style>
   .board-view {
-    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
     flex: 1;
+    padding: 16px;
+    min-height: 300px;
   }
   .board-area {
     position: relative;

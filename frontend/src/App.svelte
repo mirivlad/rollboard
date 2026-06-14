@@ -13,10 +13,29 @@
   let message = $state('');
   let messageType = $state<'error' | 'success' | 'info'>('error');
   let loading = $state(false);
+  let serverReady = $state(false);
+  let serverChecked = $state(false);
+
+  async function checkServer() {
+    serverChecked = false;
+    serverReady = false;
+    message = 'Connecting to server...';
+    messageType = 'info';
+    try {
+      await api.health();
+      serverReady = true;
+      message = '';
+      await loadGames();
+    } catch (e: any) {
+      message = 'Cannot reach server: ' + (e.message || 'connection failed');
+      messageType = 'error';
+    } finally {
+      serverChecked = true;
+    }
+  }
 
   async function loadGames() {
     loading = true;
-    message = '';
     try {
       games = await api.listGames();
     } catch (e: any) {
@@ -66,6 +85,13 @@
     if (!currentGame) return;
     loading = true;
     message = '';
+    // Normalize board dimensions before save
+    if (currentGame.board.cellSize > 0) {
+      const computedCols = Math.max(1, Math.floor(currentGame.board.width / currentGame.board.cellSize));
+      const computedRows = Math.max(1, Math.floor(currentGame.board.height / currentGame.board.cellSize));
+      currentGame.board.width = computedCols * currentGame.board.cellSize;
+      currentGame.board.height = computedRows * currentGame.board.cellSize;
+    }
     try {
       if (currentGame.id) {
         currentGame = await api.updateGame(currentGame.id, currentGame);
@@ -73,8 +99,10 @@
         currentGame = await api.createGame(currentGame);
       }
       await loadGames();
+      message = 'Game saved';
+      messageType = 'success';
     } catch (e: any) {
-      message = e.message;
+      message = 'Save failed: ' + (e.message || 'unknown error');
       messageType = 'error';
     } finally {
       loading = false;
@@ -99,7 +127,7 @@
         messageType = 'error';
       }
     } catch (e: any) {
-      message = e.message;
+      message = 'Validate failed: ' + (e.message || 'unknown error');
       messageType = 'error';
     }
   }
@@ -109,10 +137,13 @@
     view = 'playtest';
   }
 
-  function backToList() {
+  async function backToList() {
     view = 'list';
     currentGame = null;
     currentSession = null;
+    if (serverReady) {
+      await loadGames();
+    }
   }
 
   function handleSessionCreated(session: GameSession) {
@@ -120,8 +151,8 @@
   }
 
   $effect(() => {
-    if (view === 'list') {
-      loadGames();
+    if (view === 'list' && !serverChecked) {
+      checkServer();
     }
   });
 </script>
@@ -133,7 +164,7 @@
       {#if view !== 'list'}
         <button onclick={backToList}>← Games</button>
       {/if}
-      {#if view === 'list'}
+      {#if view === 'list' && serverReady}
         <button onclick={newGame}>+ New Game</button>
         <button onclick={createMiniMonopoly}>Demo Mini-Monopoly</button>
         <button onclick={createDungeonRace}>Demo Dungeon Race</button>
@@ -152,20 +183,27 @@
     {/if}
 
     {#if view === 'list'}
-      <div class="game-list">
-        {#if loading}
-          <p>Loading...</p>
-        {:else if games.length === 0}
-          <p class="empty">No games yet. Create a new game or generate a demo.</p>
-        {:else}
-          {#each games as game}
-            <div class="game-card" onclick={() => openGame(game.id)} onkeydown={(e) => e.key === 'Enter' && openGame(game.id)} role="button" tabindex="0">
-              <strong>{game.title}</strong>
-              <span class="meta">v{game.version} · {game.updatedAt}</span>
-            </div>
-          {/each}
-        {/if}
-      </div>
+      {#if !serverChecked}
+        <p class="status-msg">Connecting to server...</p>
+      {:else if !serverReady}
+        <p class="status-msg error">Cannot reach backend server. Make sure the server is running on port 8080.</p>
+        <button onclick={checkServer}>Retry Connection</button>
+      {:else}
+        <div class="game-list">
+          {#if loading}
+            <p>Loading...</p>
+          {:else if games.length === 0}
+            <p class="empty">No games yet. Create a new game or generate a demo.</p>
+          {:else}
+            {#each games as game}
+              <div class="game-card" onclick={() => openGame(game.id)} onkeydown={(e) => e.key === 'Enter' && openGame(game.id)} role="button" tabindex="0">
+                <strong>{game.title}</strong>
+                <span class="meta">v{game.version} · {game.updatedAt}</span>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {/if}
     {:else if view === 'editor' && currentGame}
       <BoardEditor game={currentGame} onsave={saveGame} />
     {:else if view === 'playtest' && currentGame}
@@ -192,6 +230,8 @@
   .msg-error { background: #3e1a1a; border: 1px solid #e94560; color: #e94560; }
   .msg-success { background: #1a3e1a; border: 1px solid #4CAF50; color: #4CAF50; }
   .msg-info { background: #1a2a3e; border: 1px solid #4fc3f7; color: #4fc3f7; }
+  .status-msg { text-align: center; padding: 40px; color: #888; }
+  .status-msg.error { color: #e94560; }
   .game-list { display: grid; gap: 12px; max-width: 600px; margin: 0 auto; }
   .game-card { padding: 16px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; cursor: pointer; transition: border-color 0.2s; }
   .game-card:hover { border-color: #e94560; }

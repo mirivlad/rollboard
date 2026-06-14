@@ -250,7 +250,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 			roll, diceEvt := session.RollDice()
 			session.State.Log = append(session.State.Log, *diceEvt)
-			moveEvents := session.MoveCurrentPlayer(roll.Total)
+			moveEvents := session.MoveCurrentPlayer(roll.Total, roll.Rolls, roll.Total)
 			session.State.Log = append(session.State.Log, moveEvents...)
 
 			// In hotseat mode, always show turn-pass screen after roll + move

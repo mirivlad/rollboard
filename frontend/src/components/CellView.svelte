@@ -14,10 +14,6 @@
       ? (players || []).find(p => p.id === cellState!.ownerPlayerId)
       : undefined
   );
-
-  let tokens = $derived(
-    (players || []).filter(p => p.positionCellId === cell.id)
-  );
 </script>
 
 <div
@@ -39,15 +35,6 @@
   </div>
   {#if owner}
     <div class="owner-stripe" style="background-color: {owner.color}"></div>
-  {/if}
-  {#if tokens.length > 1}
-    <div class="tokens">
-      {#each tokens as token}
-        <div class="token" style="background-color: {token.color}"></div>
-      {/each}
-    </div>
-  {:else if tokens.length === 1}
-    <div class="single-token" style="background-color: {tokens[0].color}"></div>
   {/if}
 </div>
 
@@ -101,31 +88,5 @@
     left: 0;
     right: 0;
     height: 6px;
-  }
-  .tokens {
-    position: absolute;
-    bottom: 10px;
-    right: 4px;
-    display: flex;
-    gap: 2px;
-    flex-wrap: wrap;
-    max-width: 40px;
-  }
-  .token {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    border: 1px solid white;
-  }
-  .single-token {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 2px solid white;
-    transform: translate(-50%, -50%);
-    z-index: 2;
   }
 </style>

@@ -16,5 +16,11 @@ if [ -d node_modules ]; then
 fi
 echo "--- vite build ---"
 npx vite build 2>&1 | tail -1
+
+echo ""
+echo "=== Validating demo definitions ==="
+cd "$ROOT"
+./scripts/validate-demos.sh
+
 echo ""
 echo "All checks passed!"

@@ -8,10 +8,10 @@ var miniMonopolyDemo = &GameDefinition{
 	ID:    "mini-monopoly",
 	Title: "Mini-Monopoly",
 	Board: Board{
-		Width: 800, Height: 700, CellSize: 96,
+		Width: 864, Height: 768, CellSize: 96,
 		Cells: []CellDefinition{
-			{ID: "start", Title: "Start", Type: "start", X: 50, Y: 550, Visual: CellVisual{BaseColor: "#4CAF50"}, OnLand: []ActionDefinition{}},
-			{ID: "cell_2", Title: "Street A", Type: "property", X: 200, Y: 550, Visual: CellVisual{BaseColor: "#E3F2FD"},
+			{ID: "start", Title: "Start", Type: "start", X: 0, Y: 576, Visual: CellVisual{BaseColor: "#4CAF50"}, OnLand: []ActionDefinition{}},
+			{ID: "cell_2", Title: "Street A", Type: "property", X: 192, Y: 576, Visual: CellVisual{BaseColor: "#E3F2FD"},
 				Fields: map[string]any{"cost": float64(100), "rent": float64(20)},
 				OnLand: []ActionDefinition{
 					{Type: "if_cell_unowned",
@@ -36,7 +36,7 @@ var miniMonopolyDemo = &GameDefinition{
 					},
 				},
 			},
-			{ID: "cell_3", Title: "Bonus", Type: "bonus", X: 350, Y: 550, Visual: CellVisual{BaseColor: "#C8E6C9"},
+			{ID: "cell_3", Title: "Bonus", Type: "bonus", X: 384, Y: 576, Visual: CellVisual{BaseColor: "#C8E6C9"},
 				Fields: map[string]any{"amount": float64(50)},
 				OnLand: []ActionDefinition{
 					{Type: "gain_resource", Resource: "money", AmountField: "amount"},
@@ -67,27 +67,27 @@ var dungeonRaceDemo = &GameDefinition{
 	ID:    "dungeon-race",
 	Title: "Dungeon Race",
 	Board: Board{
-		Width: 1200, Height: 400, CellSize: 96,
+		Width: 1056, Height: 384, CellSize: 96,
 		Cells: []CellDefinition{
-			{ID: "start", Title: "Start", Type: "start", X: 50, Y: 150, Visual: CellVisual{BaseColor: "#4CAF50"},
+			{ID: "start", Title: "Start", Type: "start", X: 0, Y: 96, Visual: CellVisual{BaseColor: "#4CAF50"},
 				OnLand: []ActionDefinition{}},
-			{ID: "trap", Title: "Trap", Type: "trap", X: 200, Y: 150, Visual: CellVisual{BaseColor: "#FFCDD2"},
+			{ID: "trap", Title: "Trap", Type: "trap", X: 192, Y: 96, Visual: CellVisual{BaseColor: "#FFCDD2"},
 				OnLand: []ActionDefinition{
 					{Type: "lose_resource", Resource: "health", Amount: intPtr(2)},
 				}},
-			{ID: "treasure", Title: "Treasure", Type: "treasure", X: 350, Y: 150, Visual: CellVisual{BaseColor: "#FFF9C4"},
+			{ID: "treasure", Title: "Treasure", Type: "treasure", X: 384, Y: 96, Visual: CellVisual{BaseColor: "#FFF9C4"},
 				OnLand: []ActionDefinition{
 					{Type: "gain_resource", Resource: "gold", Amount: intPtr(5)},
 				}},
-			{ID: "key", Title: "Key", Type: "key", X: 500, Y: 150, Visual: CellVisual{BaseColor: "#E1BEE7"},
+			{ID: "key", Title: "Key", Type: "key", X: 576, Y: 96, Visual: CellVisual{BaseColor: "#E1BEE7"},
 				OnLand: []ActionDefinition{
 					{Type: "gain_resource", Resource: "keys", Amount: intPtr(1)},
 				}},
-			{ID: "heal", Title: "Heal", Type: "heal", X: 650, Y: 150, Visual: CellVisual{BaseColor: "#C8E6C9"},
+			{ID: "heal", Title: "Heal", Type: "heal", X: 768, Y: 96, Visual: CellVisual{BaseColor: "#C8E6C9"},
 				OnLand: []ActionDefinition{
 					{Type: "gain_resource", Resource: "health", Amount: intPtr(2)},
 				}},
-			{ID: "finish", Title: "Finish", Type: "finish", X: 800, Y: 150, Visual: CellVisual{BaseColor: "#FFD700"},
+			{ID: "finish", Title: "Finish", Type: "finish", X: 960, Y: 96, Visual: CellVisual{BaseColor: "#FFD700"},
 				OnLand: []ActionDefinition{
 					{Type: "finish_game"},
 				}},
@@ -213,15 +213,91 @@ func TestFinishGame(t *testing.T) {
 	}
 }
 
+func TestDungeonRaceRollDoesNotPanic(t *testing.T) {
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}, {Name: "P2", Color: "#3498db"}}
+	session := StartSession(dungeonRaceDemo, players)
+	if session == nil {
+		t.Fatal("session should not be nil")
+	}
+	// First roll should succeed without panic
+	rollResult, diceEvt := session.RollDice()
+	if rollResult == nil {
+		t.Fatal("rollResult should not be nil")
+	}
+	if diceEvt == nil {
+		t.Fatal("dice event should not be nil")
+	}
+	if rollResult.Total < 1 || rollResult.Total > 6 {
+		t.Fatalf("dice roll out of range: %d", rollResult.Total)
+	}
+	if len(rollResult.Rolls) != 1 {
+		t.Fatalf("expected 1 die, got %d", len(rollResult.Rolls))
+	}
+	// Move should also succeed
+	events := session.MoveCurrentPlayer(rollResult.Total, rollResult.Rolls, rollResult.Total)
+	if events == nil {
+		t.Fatal("move events should not be nil")
+	}
+}
+
+func TestMiniMonopolyRollDoesNotPanic(t *testing.T) {
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}, {Name: "P2", Color: "#3498db"}}
+	session := StartSession(miniMonopolyDemo, players)
+	if session == nil {
+		t.Fatal("session should not be nil")
+	}
+	rollResult, diceEvt := session.RollDice()
+	if rollResult == nil {
+		t.Fatal("rollResult should not be nil")
+	}
+	if diceEvt == nil {
+		t.Fatal("dice event should not be nil")
+	}
+	events := session.MoveCurrentPlayer(rollResult.Total, rollResult.Rolls, rollResult.Total)
+	if events == nil {
+		t.Fatal("move events should not be nil")
+	}
+}
+
+func TestDungeonRaceWinnerIsCurrentPlayer(t *testing.T) {
+	// Regression: finish_game must mark the moving player as winner,
+	// not the next player after advanceTurn.
+	players := []PlayerConfig{{Name: "P1", Color: "#e74c3c"}, {Name: "P2", Color: "#3498db"}}
+	session := StartSession(dungeonRaceDemo, players)
+	// Force a roll of exactly 5 to reach finish from start
+	// start → trap → treasure → key → heal → finish (5 steps)
+	events := session.MoveCurrentPlayer(5, []int{5}, 5)
+	if session.State.Status != "finished" {
+		t.Fatalf("game should be finished, got status=%s", session.State.Status)
+	}
+	if session.State.WinnerPlayerID != "player_1" {
+		t.Fatalf("expected player_1 as winner, got %s", session.State.WinnerPlayerID)
+	}
+	// Verify game_over event mentions the correct player
+	foundGameOver := false
+	for _, evt := range events {
+		if evt.Type == "game_over" {
+			foundGameOver = true
+		}
+	}
+	if !foundGameOver {
+		t.Fatal("expected game_over event in events")
+	}
+	// Player 1's health should remain 10 (no trap hit)
+	if session.State.Players[0].Resources["health"] != 10 {
+		t.Fatalf("expected health 10, got %d", session.State.Players[0].Resources["health"])
+	}
+}
+
 func TestGameWithoutMoney(t *testing.T) {
 	g := &GameDefinition{
 		ID:    "no-money-game",
 		Title: "No Money",
 		Board: Board{
-			CellSize: 96,
+			Width: 384, Height: 384, CellSize: 96,
 			Cells: []CellDefinition{
-				{ID: "start", Title: "Start", Type: "start", X: 50, Y: 150, Visual: CellVisual{BaseColor: "#4CAF50"}},
-				{ID: "cell2", Title: "Cell", Type: "empty", X: 200, Y: 150, Visual: CellVisual{BaseColor: "#ccc"},
+				{ID: "start", Title: "Start", Type: "start", X: 0, Y: 96, Visual: CellVisual{BaseColor: "#4CAF50"}},
+				{ID: "cell2", Title: "Cell", Type: "empty", X: 192, Y: 96, Visual: CellVisual{BaseColor: "#ccc"},
 					OnLand: []ActionDefinition{{Type: "gain_resource", Resource: "health", Amount: intPtr(5)}}},
 			},
 			Edges: []EdgeDefinition{

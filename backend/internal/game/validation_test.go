@@ -162,6 +162,7 @@ func TestValidateValidGame(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
+			Dice: DiceRule{Count: 1, Sides: 6},
 			CellTypes: map[string]CellTypeDef{
 				"start": {Title: "Start"},
 				"empty": {Title: "Empty"},

@@ -12,13 +12,16 @@ dist/
 build/
 
 # Data
+data/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+backend/data/
 
 # Temp
 tmp/
 logs/
+artifacts/
 *.log
 
 # Environment

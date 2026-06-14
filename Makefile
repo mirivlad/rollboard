@@ -1,4 +1,4 @@
-.PHONY: dev backend frontend test check smoke clean
+.PHONY: dev backend frontend test check smoke clean stop-dev
 
 dev:
 	./scripts/dev.sh
@@ -17,6 +17,9 @@ check:
 
 smoke:
 	./scripts/smoke.sh
+
+stop-dev:
+	./scripts/stop-dev.sh
 
 build:
 	cd backend && go build -o ../build/rollboard-server ./cmd/server/

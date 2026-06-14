@@ -32,8 +32,8 @@
 
 <svg
   class="edge-layer"
-  width={cellSize * Math.ceil(cells.reduce((m, c) => Math.max(m, c.x + cellSize), 0) / cellSize)}
-  height={cellSize * Math.ceil(cells.reduce((m, c) => Math.max(m, c.y + cellSize), 0) / cellSize)}
+  width="100%"
+  height="100%"
 >
   {#each edges as edge (edge.id)}
     {@const pts = edgePoints(edge)}

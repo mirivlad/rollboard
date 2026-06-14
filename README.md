@@ -28,7 +28,7 @@ This makes the engine generic — adding a new game type requires only a JSON de
 - **Go** 1.22+ ([download](https://go.dev/dl/))
 - **Node.js** 20+ ([download](https://nodejs.org/))
 - **npm** (ships with Node.js)
-- SQLite — no separate install needed (Go's `modernc.org/sqlite` is a CGo-free pure-Go driver)
+- SQLite — no separate install needed. The driver (`github.com/mattn/go-sqlite3`) requires CGo and a working C compiler (gcc or mingw).
 
 ## Quick Start
 

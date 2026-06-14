@@ -10,8 +10,8 @@ export function createDefaultGame(): GameDefinition {
     title: 'New Game',
     version: 1,
     board: {
-      width: 1200,
-      height: 800,
+      width: 1152,
+      height: 768,
       cellSize: 96,
       cells: [
         {
@@ -109,8 +109,8 @@ export function createMiniMonopolyDemo(): GameDefinition {
     title: 'Mini-Monopoly Demo',
     version: 1,
     board: {
-      width: 800,
-      height: 700,
+      width: 864,
+      height: 768,
       cellSize: 96,
       cells: [
         cell('cell_1', 'Start', 'start', 0, 576, '#4CAF50'),
@@ -130,14 +130,24 @@ export function createMiniMonopolyDemo(): GameDefinition {
         cell('cell_15', 'Bonus +100', 'bonus', 384, 288, '#C8E6C9', { amount: 100 }, bonusOnLand('amount')),
         cell('cell_16', 'Street H', 'property', 576, 288, '#E1BEE7', { cost: 260, rent: 55, colorGroup: 'purple' }, propertyOnLand('cost', 'rent')),
       ],
-      edges: ['e1_cell_1_cell_2', 'e2_cell_2_cell_3', 'e3_cell_3_cell_4', 'e4_cell_4_cell_5',
-        'e5_cell_5_cell_6', 'e6_cell_6_cell_7', 'e7_cell_7_cell_8', 'e8_cell_8_cell_9',
-        'e9_cell_9_cell_10', 'e10_cell_10_cell_11', 'e11_cell_11_cell_12', 'e12_cell_12_cell_13',
-        'e13_cell_13_cell_14', 'e14_cell_14_cell_15', 'e15_cell_15_cell_16', 'e16_cell_16_cell_1',
-      ].map((id, i) => {
-        const cells = id.split('_').slice(1);
-        return { id, from: cells[0], to: cells[1], condition: { type: 'always' } };
-      }),
+      edges: [
+        { id: 'e1',  from: 'cell_1',  to: 'cell_2',  condition: { type: 'always' } },
+        { id: 'e2',  from: 'cell_2',  to: 'cell_3',  condition: { type: 'always' } },
+        { id: 'e3',  from: 'cell_3',  to: 'cell_4',  condition: { type: 'always' } },
+        { id: 'e4',  from: 'cell_4',  to: 'cell_5',  condition: { type: 'always' } },
+        { id: 'e5',  from: 'cell_5',  to: 'cell_6',  condition: { type: 'always' } },
+        { id: 'e6',  from: 'cell_6',  to: 'cell_7',  condition: { type: 'always' } },
+        { id: 'e7',  from: 'cell_7',  to: 'cell_8',  condition: { type: 'always' } },
+        { id: 'e8',  from: 'cell_8',  to: 'cell_9',  condition: { type: 'always' } },
+        { id: 'e9',  from: 'cell_9',  to: 'cell_10', condition: { type: 'always' } },
+        { id: 'e10', from: 'cell_10', to: 'cell_11', condition: { type: 'always' } },
+        { id: 'e11', from: 'cell_11', to: 'cell_12', condition: { type: 'always' } },
+        { id: 'e12', from: 'cell_12', to: 'cell_13', condition: { type: 'always' } },
+        { id: 'e13', from: 'cell_13', to: 'cell_14', condition: { type: 'always' } },
+        { id: 'e14', from: 'cell_14', to: 'cell_15', condition: { type: 'always' } },
+        { id: 'e15', from: 'cell_15', to: 'cell_16', condition: { type: 'always' } },
+        { id: 'e16', from: 'cell_16', to: 'cell_1',  condition: { type: 'always' } },
+      ],
     },
     rules: {
       dice: { count: 1, sides: 6 },
@@ -172,8 +182,8 @@ export function createDungeonRaceDemo(): GameDefinition {
     title: 'Dungeon Race Demo',
     version: 1,
     board: {
-      width: 1100,
-      height: 400,
+      width: 1056,
+      height: 384,
       cellSize: 96,
       cells: [
         cell('start', 'Start', 'start', 0, 96, '#4CAF50'),

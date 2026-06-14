@@ -20,15 +20,16 @@ echo "=== Rollboard Smoke Test ==="
 ADDR="${ROLLBOARD_ADDR:-127.0.0.1:8080}"
 DB_PATH="${ROLLBOARD_DB_PATH:-$ROOT/data/smoke-test.db}"
 
-# Clean up previous smoke-test db
+# Clean up previous smoke-test db and kill stale backend
 rm -f "$ROOT/data/smoke-test.db" "$ROOT/data/smoke-test.db-shm" "$ROOT/data/smoke-test.db-wal"
+fuser -k "${ADDR##*:}/tcp" 2>/dev/null || true
 
 export ROLLBOARD_ADDR="$ADDR"
 export ROLLBOARD_DB_PATH="$DB_PATH"
 
 echo "Starting backend on $ADDR (DB: $DB_PATH)..."
 cd "$ROOT/backend"
-go run ./cmd/server/ &
+go run ./cmd/server/ 2>/dev/null &
 BACKEND_PID=$!
 
 # Wait for startup
@@ -69,12 +70,12 @@ CREATE_BODY='{
   "title": "Smoke Test",
   "version": 1,
   "board": {
-    "width": 800,
-    "height": 600,
+    "width": 864,
+    "height": 672,
     "cellSize": 96,
     "cells": [
-      {"id":"start","title":"Start","type":"start","x":50,"y":300,"visual":{"baseColor":"#4CAF50"},"fields":{}},
-      {"id":"cell2","title":"Cell 2","type":"empty","x":200,"y":300,"visual":{"baseColor":"#ccc"},"fields":{}}
+      {"id":"start","title":"Start","type":"start","x":0,"y":288,"visual":{"baseColor":"#4CAF50"},"fields":{}},
+      {"id":"cell2","title":"Cell 2","type":"empty","x":192,"y":288,"visual":{"baseColor":"#ccc"},"fields":{}}
     ],
     "edges": [
       {"id":"e1","from":"start","to":"cell2","condition":{"type":"always"}}

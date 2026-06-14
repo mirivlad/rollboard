@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Board, CellDefinition, EdgeDefinition, PlayerState, CellState } from '../lib/types';
+  import type { Board, CellDefinition, PlayerState, CellState } from '../lib/types';
   import CellView from './CellView.svelte';
   import EdgeLayer from './EdgeLayer.svelte';
 
@@ -17,7 +17,7 @@
     onAddEdge?: (from: string, to: string) => void;
   } = $props();
 
-  let canvasEl = $state<HTMLElement | null>(null);
+  let surfaceEl = $state<HTMLElement | null>(null);
   let connectFrom = $state<string | null>(null);
   let dragCellId = $state<string | null>(null);
   let dragOffsetX = $state(0);
@@ -31,25 +31,34 @@
 
   const DRAG_THRESHOLD = 4;
 
+  let cols = $derived(Math.max(1, Math.floor(board.width / board.cellSize)));
+  let rows = $derived(Math.max(1, Math.floor(board.height / board.cellSize)));
+
+  function boardSurfaceWidth(): number { return cols * board.cellSize; }
+  function boardSurfaceHeight(): number { return rows * board.cellSize; }
+
   function clientToBoard(clientX: number, clientY: number): { x: number; y: number } | null {
-    if (!canvasEl) return null;
-    const rect = canvasEl.getBoundingClientRect();
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-    };
+    if (!surfaceEl) return null;
+    const rect = surfaceEl.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    if (x < 0 || y < 0 || x > boardSurfaceWidth() || y > boardSurfaceHeight()) return null;
+    return { x, y };
   }
 
-  function snap(value: number): number {
+  function snapToGrid(value: number): number {
     return Math.round(value / board.cellSize) * board.cellSize;
   }
 
-  function clampCellPosition(x: number, y: number): { x: number; y: number } {
-    const maxX = Math.max(0, board.width - board.cellSize);
-    const maxY = Math.max(0, board.height - board.cellSize);
+  function maxCellX(): number { return (cols - 1) * board.cellSize; }
+  function maxCellY(): number { return (rows - 1) * board.cellSize; }
+
+  function clampSnapped(x: number, y: number): { x: number; y: number } {
+    const sx = snapToGrid(x);
+    const sy = snapToGrid(y);
     return {
-      x: Math.min(Math.max(0, x), maxX),
-      y: Math.min(Math.max(0, y), maxY),
+      x: Math.min(Math.max(0, sx), maxCellX()),
+      y: Math.min(Math.max(0, sy), maxCellY()),
     };
   }
 
@@ -94,7 +103,7 @@
     if (selectedEdgeId) onEdgeSelect?.(undefined);
   }
 
-  function handleCanvasClick(e: Event) {
+  function handleSurfaceClick(e: Event) {
     if (hasDragged) return;
 
     if (mode === 'connect') {
@@ -108,8 +117,8 @@
   function handlePointerMove(e: PointerEvent) {
     const pos = clientToBoard(e.clientX, e.clientY);
     if (pos) {
-      mouseBoardX = pos.x;
-      mouseBoardY = pos.y;
+      mouseBoardX = Math.min(pos.x, boardSurfaceWidth());
+      mouseBoardY = Math.min(pos.y, boardSurfaceHeight());
     }
 
     if (!dragCellId || !pos || !pointerStart) return;
@@ -119,9 +128,7 @@
     if (!hasDragged && dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) return;
     hasDragged = true;
 
-    let x = snap(pos.x - dragOffsetX);
-    let y = snap(pos.y - dragOffsetY);
-    ({ x, y } = clampCellPosition(x, y));
+    const { x, y } = clampSnapped(pos.x - dragOffsetX, pos.y - dragOffsetY);
     onCellMove?.(dragCellId, x, y);
   }
 
@@ -134,82 +141,86 @@
 <svelte:window onpointermove={handlePointerMove} onpointerup={handlePointerUp} />
 
 <div class="canvas-wrapper">
-  <div
-    class="canvas-area"
-    bind:this={canvasEl}
-    style="width: {board.width}px; height: {board.height}px;"
-    onclick={handleCanvasClick}
-    onkeydown={(e) => e.key === 'Enter' && handleCanvasClick(e)}
-    role="button"
-    tabindex="0"
-  >
-    <!-- Grid -->
-    {#each Array(Math.ceil(board.height / board.cellSize)) as _, row}
-      {#each Array(Math.ceil(board.width / board.cellSize)) as _, col}
-        <div
-          class="grid-cell"
-          style="
-            left: {col * board.cellSize}px;
-            top: {row * board.cellSize}px;
-            width: {board.cellSize}px;
-            height: {board.cellSize}px;
-          "
-        ></div>
+  <div class="canvas-area" style="width: {boardSurfaceWidth()}px; height: {boardSurfaceHeight()}px;">
+    <div
+      class="board-surface"
+      bind:this={surfaceEl}
+      style="width: {boardSurfaceWidth()}px; height: {boardSurfaceHeight()}px;"
+      onclick={handleSurfaceClick}
+      onkeydown={(e) => e.key === 'Enter' && handleSurfaceClick(e)}
+      role="button"
+      tabindex="0"
+    >
+      <!-- Grid -->
+      {#each Array(rows) as _, row}
+        {#each Array(cols) as _, col}
+          <div
+            class="grid-cell"
+            style="
+              left: {col * board.cellSize}px;
+              top: {row * board.cellSize}px;
+              width: {board.cellSize}px;
+              height: {board.cellSize}px;
+            "
+          ></div>
+        {/each}
       {/each}
-    {/each}
 
-    <!-- Edges -->
-    <EdgeLayer
-      edges={board.edges}
-      cells={board.cells}
-      cellSize={board.cellSize}
-      {selectedEdgeId}
-      onSelect={onEdgeSelect}
-    />
+      <!-- Edges -->
+      <EdgeLayer
+        edges={board.edges}
+        cells={board.cells}
+        cellSize={board.cellSize}
+        {selectedEdgeId}
+        onSelect={onEdgeSelect}
+      />
 
-    <!-- Cells -->
-    {#each board.cells as cell (cell.id)}
-      <div
-        style="position: absolute;"
-        onpointerdown={(e) => handleCellPointerDown(cell.id, e)}
-        onclick={(e) => handleCellClick(cell.id, e)}
-        onkeydown={(e) => e.key === 'Enter' && handleCellClick(cell.id, e)}
-        role="button"
-        tabindex="0"
-      >
-        <CellView
-          {cell}
-          cellSize={board.cellSize}
-          cellState={cellStates?.[cell.id]}
-          {players}
-          isSelected={cell.id === selectedCellId}
-        />
-      </div>
-    {/each}
+      <!-- Cells -->
+      {#each board.cells as cell (cell.id)}
+        <div
+          style="position: absolute;"
+          onpointerdown={(e) => handleCellPointerDown(cell.id, e)}
+          onclick={(e) => handleCellClick(cell.id, e)}
+          onkeydown={(e) => e.key === 'Enter' && handleCellClick(cell.id, e)}
+          role="button"
+          tabindex="0"
+        >
+          <CellView
+            {cell}
+            cellSize={board.cellSize}
+            cellState={cellStates?.[cell.id]}
+            {players}
+            isSelected={cell.id === selectedCellId}
+          />
+        </div>
+      {/each}
 
-    <!-- Connect mode hint -->
-    {#if mode === 'connect' && connectFrom}
-      <div class="connect-hint">
-        Source: {connectFrom} — click another cell to connect
-      </div>
-    {/if}
+      <!-- Connect mode hint -->
+      {#if mode === 'connect' && connectFrom}
+        <div class="connect-hint">
+          Source: {connectFrom} — click another cell to connect
+        </div>
+      {/if}
 
-    <!-- Debug panel -->
-    {#if debugVisible}
-      <div class="debug-panel" role="none" onpointerdown={(e) => e.stopPropagation()}>
-        <button class="debug-close" onclick={() => debugVisible = false}>✕</button>
-        <div class="debug-title">Editor Debug</div>
-        <div class="debug-row">selectedCellId: <span class="debug-val">{selectedCellId ?? 'null'}</span></div>
-        <div class="debug-row">selectedEdgeId: <span class="debug-val">{selectedEdgeId ?? 'null'}</span></div>
-        <div class="debug-row">mode: <span class="debug-val">{mode}</span></div>
-        <div class="debug-row">dragCellId: <span class="debug-val">{dragCellId ?? 'null'}</span></div>
-        <div class="debug-row">connectFrom: <span class="debug-val">{connectFrom ?? 'null'}</span></div>
-        <div class="debug-row">hasDragged: <span class="debug-val">{String(hasDragged)}</span></div>
-        <div class="debug-row">mouseBoard: <span class="debug-val">{mouseBoardX}, {mouseBoardY}</span></div>
-      </div>
-    {:else}
-      <button class="debug-show" onclick={() => debugVisible = true}>Debug</button>
-    {/if}
+      <!-- Debug panel -->
+      {#if debugVisible}
+        <div class="debug-panel" role="none" onpointerdown={(e) => e.stopPropagation()}>
+          <button class="debug-close" onclick={() => debugVisible = false}>✕</button>
+          <div class="debug-title">Editor Debug</div>
+          <div class="debug-row">board cols/rows: <span class="debug-val">{cols} x {rows}</span></div>
+          <div class="debug-row">board surface: <span class="debug-val">{boardSurfaceWidth()} x {boardSurfaceHeight()}</span></div>
+          <div class="debug-row">selectedCellId: <span class="debug-val">{selectedCellId ?? 'null'}</span></div>
+          <div class="debug-row">selectedEdgeId: <span class="debug-val">{selectedEdgeId ?? 'null'}</span></div>
+          <div class="debug-row">mode: <span class="debug-val">{mode}</span></div>
+          <div class="debug-row">dragCellId: <span class="debug-val">{dragCellId ?? 'null'}</span></div>
+          <div class="debug-row">connectFrom: <span class="debug-val">{connectFrom ?? 'null'}</span></div>
+          <div class="debug-row">hasDragged: <span class="debug-val">{String(hasDragged)}</span></div>
+          <div class="debug-row">mouseBoard: <span class="debug-val">{mouseBoardX}, {mouseBoardY}</span></div>
+        </div>
+      {:else}
+        <button class="debug-show" onclick={() => debugVisible = true}>Debug</button>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -225,6 +236,9 @@
     position: relative;
     user-select: none;
     -webkit-user-select: none;
+  }
+  .board-surface {
+    position: relative;
   }
   .grid-cell {
     position: absolute;

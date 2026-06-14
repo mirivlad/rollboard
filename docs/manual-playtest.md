@@ -262,4 +262,47 @@ Tester: dev
 - `BoardCanvas`: cell wrapper divs inside `{#each}` use `style="position: absolute;"` instead of computed `left`/`top` — the layout relies on CellView providing absolute positioning. This is inherited from earlier code.
 - `PlaytestPanel`: `currentSession` state captures initial prop value; locally managed thereafter — intentional for hotseat flow.
 - No dice sound effects or complex easing in token animation — simple 300ms per step, no easing.
-- Edge rendering SVG dimensions are computed from cell bounding box rather than board dimensions.
+- Edge rendering SVG now uses `width="100%"` / `height="100%"` to fill the board viewport.
+
+---
+
+## Dice Rules and Roll Display
+
+Date: 2026-06-14 (fifth iteration)
+Commit: (next commit)
+Browser: Firefox
+
+### Editor
+- [x] Dice count visible in editor toolbar (label: "Dice: NdM")
+- [x] Dice sides visible
+- [x] Dice count editable (input clamps 1–10)
+- [x] Dice sides editable (input clamps 2–100)
+- [x] Save/reload preserves dice settings (saved as part of GameDefinition)
+- [x] Invalid dice settings show validation error (backend checks count≥1, sides≥2)
+
+### Dungeon Race
+- [x] Shows Dice: 1d6 in playtest sidebar
+- [x] Roll displays one die with pip face (⚀⚁⚂⚃⚄⚅)
+- [x] Dice result visible before movement (600ms pause after result, then animation)
+- [x] Token moves after dice result is shown
+
+### Mini-Monopoly
+- [x] Shows Dice: 1d6 in playtest sidebar
+- [x] Roll displays one die
+- [x] Total is visible ("Total: N")
+- [x] Token moves after dice result is shown
+
+### Non-d6 support
+- [x] d6 uses Unicode pip characters (⚀–⚅)
+- [x] Other dice (d8, d10, d12, d20) show numeric value in die square
+- [x] Rolling animation shows correct number of dice
+- [x] "Dice: NdM" label updates dynamically
+
+### Backend changes
+- [x] `MoveCurrentPlayer` accepts dice rolls and includes `dice`+`total` in move event payload
+- [x] `dice_roll` event message shows "Player rolled X + Y = Z" (multi-die) or "Player rolled X" (single die)
+- [x] Backend validates dice count (1–10) and sides (2–100)
+
+### Bugs found/fixed
+
+None during this iteration.

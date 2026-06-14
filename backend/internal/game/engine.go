@@ -89,23 +89,42 @@ func (s *GameSession) RollDice() (*RollResult, *GameEvent) {
 		total += rolls[i]
 	}
 
-	evt := NewGameEvent("dice_roll",
-		fmt.Sprintf("%s rolled %d (dice: %s)",
-			s.State.Players[s.State.CurrentPlayerIndex].Name,
-			total,
-			joinInts(rolls, "+")),
+	playerName := s.State.Players[s.State.CurrentPlayerIndex].Name
+	msg := fmt.Sprintf("%s rolled %d", playerName, total)
+	if len(rolls) > 1 {
+		msg = fmt.Sprintf("%s rolled %s = %d", playerName, joinInts(rolls, " + "), total)
+	}
+	evt := NewGameEvent("dice_roll", msg,
 		map[string]any{"rolls": rolls, "total": total, "playerId": s.State.Players[s.State.CurrentPlayerIndex].ID})
 
 	return &RollResult{Rolls: rolls, Total: total}, &evt
 }
 
-func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
+func (s *GameSession) MoveCurrentPlayer(steps int, diceRolls []int, diceTotal int) []GameEvent {
 	var events []GameEvent
 	player := &s.State.Players[s.State.CurrentPlayerIndex]
 
 	if player.Bankrupt {
 		s.advanceTurn()
 		return nil
+	}
+
+	// Handle steps <= 0 — no movement, but still record the dice
+	if steps <= 0 {
+		events = append(events, NewGameEvent("move",
+			fmt.Sprintf("%s stayed in place (rolled %d)", player.Name, diceTotal),
+			map[string]any{
+				"from":     player.PositionCellID,
+				"to":       player.PositionCellID,
+				"path":     []string{},
+				"playerId": player.ID,
+				"dice":     diceRolls,
+				"total":    diceTotal,
+			}))
+		if s.State.PendingAction == nil {
+			s.advanceTurn()
+		}
+		return events
 	}
 
 	edgeMap := s.Definition.Board.buildEdgeMap()
@@ -115,6 +134,9 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 
 	currentCell := s.Definition.Board.getCellByID(player.PositionCellID)
 	if currentCell == nil {
+		events = append(events, NewGameEvent("error",
+			fmt.Sprintf("player %s position cell '%s' not found in board definition",
+				player.Name, player.PositionCellID), nil))
 		return events
 	}
 
@@ -137,6 +159,8 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 
 		nextCell := s.Definition.Board.getCellByID(nextEdge.To)
 		if nextCell == nil {
+			events = append(events, NewGameEvent("error",
+				fmt.Sprintf("edge '%s' leads to unknown cell '%s'", nextEdge.ID, nextEdge.To), nil))
 			break
 		}
 
@@ -147,7 +171,14 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 	finalCell := currentCell
 
 	// Check for start pass-through (not starting position)
-	for _, pc := range pathCells[:len(pathCells)-1] {
+	// pathCells includes all cells along the path; the last one is finalCell.
+	// Only check intermediate cells (0 .. n-2) for pass-through.
+	// If pathCells has only 1 element, there are no intermediate cells to check.
+	intermediateCells := pathCells
+	if len(intermediateCells) > 1 {
+		intermediateCells = pathCells[:len(pathCells)-1]
+	}
+	for _, pc := range intermediateCells {
 		if pc != nil && pc.Type == "start" && pc.ID != player.PositionCellID {
 			passedStart = true
 		}
@@ -169,6 +200,8 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 			"to":       finalCell.ID,
 			"path":     pathIDs,
 			"playerId": player.ID,
+			"dice":     diceRolls,
+			"total":    diceTotal,
 		}))
 
 	// Start pass-through bonus
@@ -183,7 +216,11 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 	}
 
 	// Execute OnPass actions for each passed cell (except final)
-	for _, pc := range pathCells[:len(pathCells)-1] {
+	passedCells := pathCells
+	if len(passedCells) > 1 {
+		passedCells = pathCells[:len(pathCells)-1]
+	}
+	for _, pc := range passedCells {
 		if pc != nil && len(pc.OnPass) > 0 {
 			passEvents := s.executeActions(pc.OnPass, player, pc)
 			events = append(events, passEvents...)

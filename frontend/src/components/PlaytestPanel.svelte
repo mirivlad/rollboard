@@ -31,7 +31,20 @@
   }
 
   // --- Session state ---
-  let currentSession = $state<GameSession | null>(session);
+  let currentSession = $state<GameSession | null>(null);
+
+  // Sync when prop session changes (e.g. re-opening an existing session)
+  let lastSessionId = $state<string | null>(null);
+  $effect(() => {
+    const s = session;
+    if (s && s.id !== lastSessionId) {
+      currentSession = s;
+      lastSessionId = s.id;
+      if (s.state.status === 'active') {
+        phase = 'turn_intro';
+      }
+    }
+  });
 
   // --- Dice ---
   let diceState = $state<'idle' | 'rolling' | 'result'>('idle');
@@ -55,6 +68,18 @@
   let currentPlayer = $derived<PlayerState | undefined>(
     currentSession ? currentSession.state.players[currentSession.state.currentPlayerIndex] : undefined
   );
+
+  let diceCount = $derived(currentSession?.definition.rules.dice.count ?? 1);
+  let diceSides = $derived(currentSession?.definition.rules.dice.sides ?? 6);
+  let diceLabel = $derived(`${diceCount}d${diceSides}`);
+
+  // Pip representation for d6, number for any other die
+  function dieFace(val: number): string {
+    if (diceSides === 6) {
+      return ['', '\u2680', '\u2681', '\u2682', '\u2683', '\u2684', '\u2685'][val] || String(val);
+    }
+    return String(val);
+  }
 
   let resourceKeys = $derived(
     currentSession ? Object.keys(currentSession.state.players[0]?.resources || {}) : []
@@ -81,6 +106,10 @@
     diceState = 'idle';
     lastRolls = [];
     lastTotal = 0;
+  }
+
+  function startTurn() {
+    phase = 'playing';
   }
 
   async function handleRollStart() {
@@ -111,14 +140,17 @@
 
         diceState = 'result';
 
-        // Start token animation if path exists
-        if (path && path.length > 0) {
-          animState = { playerId, path, step: 0, session: s };
-          startAnimStep();
-        } else {
-          currentSession = s;
-          checkPhaseAfterRoll(s);
-        }
+        // Pause briefly so user sees dice result, then animate
+        diceTimerId = setTimeout(() => {
+          diceTimerId = null;
+          if (path && path.length > 0) {
+            animState = { playerId, path, step: 0, session: s };
+            startAnimStep();
+          } else {
+            currentSession = s;
+            checkPhaseAfterRoll(s);
+          }
+        }, 600);
       } catch (e: any) {
         error = e.message;
         diceState = 'idle';
@@ -171,8 +203,19 @@
     }
   }
 
-  function handleAdvanceTurn() {
-    showTurnIntro();
+  async function handleAdvanceTurn() {
+    if (!currentSession) return;
+    loading = true;
+    error = '';
+    try {
+      const s = await api.nextTurn(currentSession.id);
+      currentSession = s;
+      showTurnIntro();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
   }
 
   function cancelDice() {
@@ -280,7 +323,7 @@
           <h2>{currentPlayer?.name}'s Turn</h2>
           <p>Round {currentSession.state.roundNumber} · Turn {currentSession.state.turnNumber}</p>
           <p class="pass-msg">Pass control to {currentPlayer?.name}</p>
-          <button class="primary-btn" onclick={showTurnIntro}>
+          <button class="primary-btn" onclick={startTurn}>
             Start Turn
           </button>
         </div>
@@ -308,6 +351,7 @@
       <div class="game-ui">
         <div class="sidebar">
           <div class="panel">
+            <div class="dice-rule">Dice: {diceLabel}</div>
             <h3>Players</h3>
             {#each currentSession.state.players as player, i}
               <div class="player-row" class:active={i === currentSession.state.currentPlayerIndex && !player.bankrupt} class:bankrupt={player.bankrupt}>
@@ -346,8 +390,9 @@
             {:else if diceState === 'rolling'}
               <div class="dice-rolling">
                 <div class="dice-animation">
-                  <div class="dice-face rolling">?</div>
-                  <div class="dice-face rolling">?</div>
+                  {#each Array(diceCount) as _}
+                    <div class="dice-face rolling">?</div>
+                  {/each}
                 </div>
                 <p>Rolling...</p>
               </div>
@@ -355,7 +400,7 @@
               <div class="dice-result">
                 <div class="dice-row">
                   {#each lastRolls as roll, i}
-                    <div class="dice-face result">{roll}</div>
+                    <div class="dice-face result">{dieFace(roll)}</div>
                   {/each}
                 </div>
                 <p class="dice-total">Total: <strong>{lastTotal}</strong></p>
@@ -401,8 +446,8 @@
 
       {#if phase === 'turn_done' && !isAnimating}
         <div class="turn-done-bar">
-          <button class="primary-btn" onclick={handleAdvanceTurn}>
-            Pass to Next Player
+          <button class="primary-btn" onclick={handleAdvanceTurn} disabled={loading}>
+            {loading ? 'Advancing...' : 'Pass to Next Player'}
           </button>
         </div>
       {/if}
@@ -452,6 +497,7 @@
   .sidebar { width: 280px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex-shrink: 0; }
   .panel { padding: 12px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; }
   .panel h3 { margin: 0 0 8px; color: #e94560; font-size: 14px; }
+  .dice-rule { font-size: 12px; color: #f39c12; margin-bottom: 8px; font-family: monospace; }
 
   .actions { text-align: center; }
   .action-btn { display: block; width: 100%; padding: 12px; margin-bottom: 8px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
