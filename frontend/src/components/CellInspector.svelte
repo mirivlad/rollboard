@@ -2,7 +2,7 @@
   import type { CellDefinition, EdgeDefinition, RuleSet } from '../lib/types';
 
   let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect }: {
-    cell: CellDefinition | null;
+    cell: CellDefinition | null | undefined;
     edges: EdgeDefinition[];
     rules: RuleSet;
     onCellChange?: (cell: CellDefinition) => void;

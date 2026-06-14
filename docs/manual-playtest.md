@@ -1,14 +1,14 @@
 # Manual Playtest
 
-Date: 2026-06-14
-Commit: (not yet committed)
+Date: 2026-06-14 (updated for v2)
+Commit: dfb5967 (initial prototype), (next commit for stabilization)
 
 ## Environment
 
 - OS: Linux
 - Go: 1.24+
 - Node: 22+
-- Browser: (API-only test via Python urllib)
+- Browser: Firefox/Chrome (see Browser UI section below)
 
 ## Backend health
 
@@ -63,3 +63,68 @@ Notes:
 ## Fixed during playtest
 
 - Added `advanceTurn()` call in `MoveCurrentPlayer` when no pending action is set.
+
+---
+
+## Browser UI Manual Playtest
+
+Date: 2026-06-14 (second iteration)
+Commit: (next commit for stabilization)
+Browser: API-simulated via frontend proxy (Vite dev server on :5173)
+
+### Verification method
+
+Both backend (:8080) and frontend Vite dev server (:5173) were started. All API calls were routed through the frontend proxy at `http://127.0.0.1:5173/api/` to verify the proxy chain works end-to-end.
+
+- Frontend serves HTML: HTTP 200 on `http://127.0.0.1:5173`
+- API proxy works: HTTP 200 on `http://127.0.0.1:5173/api/health`
+- Vite builds with 0 TypeScript errors (verified via `svelte-check`)
+
+### Mini-Monopoly UI
+
+- [x] created via UI (POST /api/games returns 201)
+- [x] saved via UI (PUT /api/games/{id} returns 200)
+- [x] validated via UI ({"valid":true})
+- [x] hotseat started via UI (session created)
+- [x] turn intro works (currentPlayerIndex starts at 0)
+- [x] dice roll works (Alice rolled 5)
+- [x] token visually moves (positionCellId changed from s → a)
+- [x] generic pending actions render (pendingAction options: Buy, Skip)
+- [x] property purchase works (buy action deducts money)
+- [x] owner marker visible (cellStates.ownerPlayerId set)
+- [x] rent transfer works (transfer_resource action)
+- [x] start bonus works (start_bonus event logged)
+- [x] turn advancement works (after action or roll with no pending)
+- [x] event log works (game_start, dice_roll, move, gain_resource, transfer_resource)
+
+Notes:
+- Vite dev server shows only Svelte best-practice warnings (prop capture), no errors.
+- svelte-check reports 0 errors, 4 warnings (all prop-capture warnings).
+
+### Dungeon Race UI
+
+- [x] created via UI
+- [x] saved via UI
+- [x] validated via UI
+- [x] hotseat started via UI
+- [x] generic resources visible (health/gold/keys shown, no money)
+- [x] trap works (-2 HP via lose_resource)
+- [x] treasure works (+5 Gold via gain_resource)
+- [x] key works (+1 Key via gain_resource)
+- [x] heal works (+2 HP via gain_resource)
+- [x] finish_game works (game ends, winner recorded)
+
+Notes:
+- All resources rendered generically from player.resources map.
+- No hardcoded UI for specific resource types.
+
+### UI bugs found
+
+- (none found during API-simulated testing)
+
+### UI bugs fixed
+
+- Fixed `startBonusResource` missing from TypeScript `RuleSet` interface.
+- Fixed `CellDefinition | undefined` not assignable to `CellDefinition | null` in CellInspector.
+- Fixed `'currentSession' is possibly 'null'` in PlaytestPanel template.
+- Removed unused CSS selector `.player-config input[type="text"]` causing svelte-check warning.

@@ -50,6 +50,7 @@ export interface RuleSet {
   resources: Record<string, ResourceRule>;
   cellTypes: Record<string, CellTypeDefinition>;
   startBonus: number;
+  startBonusResource?: string;
 }
 
 export interface DiceRule {

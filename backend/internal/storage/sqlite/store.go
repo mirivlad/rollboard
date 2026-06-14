@@ -4,6 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -14,19 +18,100 @@ type Store struct {
 	db *sql.DB
 }
 
+func dbPathFromDSN(dsn string) string {
+	if idx := strings.Index(dsn, "?"); idx >= 0 {
+		return dsn[:idx]
+	}
+	return dsn
+}
+
 func New(dsn string) (*Store, error) {
+	dbPath := dbPathFromDSN(dsn)
+	log.Printf("opening database: %s", dbPath)
+
+	// Ensure the directory for the database file exists
+	if dir := filepath.Dir(dbPath); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("create db directory %s: %w", dir, err)
+		}
+	}
+
 	db, err := sql.Open("sqlite3", dsn+"?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("ping db: %w", err)
+		db.Close()
+		if recovered := tryRecoverWAL(dsn); recovered {
+			log.Printf("WAL recovery performed, retrying open")
+			db, err = sql.Open("sqlite3", dsn+"?_journal_mode=WAL&_foreign_keys=on")
+			if err != nil {
+				return nil, fmt.Errorf("open db after WAL recovery: %w", err)
+			}
+			if err := db.Ping(); err != nil {
+				db.Close()
+				return nil, fmt.Errorf("ping db after WAL recovery: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("ping db: %w", err)
+		}
 	}
+
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
+}
+
+// tryRecoverWAL attempts to recover from stale WAL/SHM files.
+// It renames .db-wal and .db-shm to .bak.<timestamp> if they exist.
+// Returns true if recovery was attempted (files may or may not have existed).
+func tryRecoverWAL(dsn string) bool {
+	dbPath := dbPathFromDSN(dsn)
+	if dbPath == "" {
+		return false
+	}
+	walPath := dbPath + "-wal"
+	shmPath := dbPath + "-shm"
+
+	walExists := fileExists(walPath)
+	shmExists := fileExists(shmPath)
+
+	if !walExists && !shmExists {
+		return false
+	}
+
+	ts := time.Now().UnixMilli()
+	recovered := false
+
+	if walExists {
+		bak := fmt.Sprintf("%s.bak.%d", walPath, ts)
+		if err := os.Rename(walPath, bak); err != nil {
+			log.Printf("warning: failed to rename stale WAL file %s: %v", walPath, err)
+		} else {
+			log.Printf("renamed stale WAL file %s -> %s", walPath, bak)
+			recovered = true
+		}
+	}
+	if shmExists {
+		bak := fmt.Sprintf("%s.bak.%d", shmPath, ts)
+		if err := os.Rename(shmPath, bak); err != nil {
+			log.Printf("warning: failed to rename stale SHM file %s: %v", shmPath, err)
+		} else {
+			log.Printf("renamed stale SHM file %s -> %s", shmPath, bak)
+			recovered = true
+		}
+	}
+
+	return recovered
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (s *Store) Close() error {

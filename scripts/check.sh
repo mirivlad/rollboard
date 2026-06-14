@@ -10,6 +10,11 @@ go test ./... -count=1
 echo ""
 echo "=== Running frontend checks ==="
 cd "$ROOT/frontend"
-npx vite build 2>&1 | tail -3
+if [ -d node_modules ]; then
+  echo "--- svelte-check ---"
+  npx svelte-check --tsconfig ./tsconfig.json 2>&1 | tail -1
+fi
+echo "--- vite build ---"
+npx vite build 2>&1 | tail -1
 echo ""
 echo "All checks passed!"

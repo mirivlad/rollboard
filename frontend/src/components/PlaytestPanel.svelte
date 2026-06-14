@@ -184,7 +184,7 @@
     <div class="game-over">
       <h2>Game Over!</h2>
       <div class="winner-banner">
-        {currentSession.state.players.find(p => p.id === currentSession.state.winnerPlayerId)?.name} wins!
+        {currentSession!.state.players.find(p => p.id === currentSession!.state.winnerPlayerId)?.name} wins!
       </div>
       <div class="player-stats">
         {#each currentSession.state.players as player}
@@ -321,7 +321,7 @@
   .setup-players label { display: block; text-align: center; margin-bottom: 16px; color: #aaa; }
   .setup-players select { margin-left: 8px; padding: 6px 12px; background: #0d1b2a; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; }
   .player-config { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .player-config input[type="text"] { flex: 1; padding: 6px 8px; background: #0d1b2a; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; }
+  .player-config input { flex: 1; padding: 6px 8px; background: #0d1b2a; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; }
   .player-config input[type="color"] { width: 40px; height: 32px; padding: 2px; background: transparent; border: 1px solid #0f3460; border-radius: 4px; cursor: pointer; }
   .setup > button { display: block; width: 100%; padding: 12px; background: #e94560; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 12px; }
 
