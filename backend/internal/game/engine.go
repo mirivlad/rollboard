@@ -156,9 +156,20 @@ func (s *GameSession) MoveCurrentPlayer(steps int) []GameEvent {
 	oldPos := player.PositionCellID
 	player.PositionCellID = finalCell.ID
 
+	pathIDs := make([]string, len(pathCells))
+	for i, pc := range pathCells {
+		pathIDs[i] = pc.ID
+	}
+
 	events = append(events, NewGameEvent("move",
 		fmt.Sprintf("%s moved from %s to %s",
-			player.Name, oldPos, finalCell.ID), nil))
+			player.Name, oldPos, finalCell.ID),
+		map[string]any{
+			"from":     oldPos,
+			"to":       finalCell.ID,
+			"path":     pathIDs,
+			"playerId": player.ID,
+		}))
 
 	// Start pass-through bonus
 	if passedStart {

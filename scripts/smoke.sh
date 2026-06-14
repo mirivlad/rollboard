@@ -7,10 +7,9 @@ PASS=0
 FAIL=0
 
 cleanup() {
-  if [ -n "$BACKEND_PID" ]; then
-    kill "$BACKEND_PID" 2>/dev/null || true
-    wait "$BACKEND_PID" 2>/dev/null || true
-  fi
+  # Kill the entire process tree of the backend
+  pkill -P "$BACKEND_PID" 2>/dev/null || true
+  kill -9 "$BACKEND_PID" 2>/dev/null || true
 }
 
 trap cleanup EXIT SIGINT SIGTERM

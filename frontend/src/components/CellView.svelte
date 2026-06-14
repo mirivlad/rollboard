@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { CellDefinition, CellState, PlayerState } from '../lib/types';
 
-  let { cell, cellState, players, isSelected }: {
+  let { cell, cellSize, cellState, players, isSelected }: {
     cell: CellDefinition;
+    cellSize: number;
     cellState?: CellState;
     players?: PlayerState[];
     isSelected?: boolean;
@@ -25,8 +26,8 @@
   style="
     left: {cell.x}px;
     top: {cell.y}px;
-    width: {cell.visual.baseImage ? '96px' : '96px'};
-    height: {cell.visual.baseImage ? '96px' : '96px'};
+    width: {cellSize}px;
+    height: {cellSize}px;
     background-color: {cell.visual.baseColor || '#eee'};
     background-image: {cell.visual.baseImage ? `url(${cell.visual.baseImage})` : 'none'};
     background-size: cover;

@@ -48,7 +48,7 @@
     );
   }
 
-  function handleCellSelect(id: string) {
+  function handleCellSelect(id: string | undefined) {
     selectedCellId = id;
     selectedEdgeId = undefined;
   }
@@ -59,11 +59,12 @@
   }
 
   function handleCellChange(cell: CellDefinition) {
-    const idx = game.board.cells.findIndex(c => c.id === selectedCellId);
+    const idx = game.board.cells.findIndex(c => c.id === cell.id);
     if (idx !== -1) {
       const cells = [...game.board.cells];
       cells[idx] = cell;
       game.board.cells = cells;
+      selectedCellId = cell.id;
     }
   }
 

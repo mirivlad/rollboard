@@ -113,22 +113,22 @@ export function createMiniMonopolyDemo(): GameDefinition {
       height: 700,
       cellSize: 96,
       cells: [
-        cell('cell_1', 'Start', 'start', 50, 550, '#4CAF50'),
-        cell('cell_2', 'Street A', 'property', 200, 550, '#E3F2FD', { cost: 100, rent: 20, colorGroup: 'brown' }, propertyOnLand('cost', 'rent')),
-        cell('cell_3', 'Bonus +50', 'bonus', 350, 550, '#C8E6C9', { amount: 50 }, bonusOnLand('amount')),
-        cell('cell_4', 'Street B', 'property', 500, 550, '#E3F2FD', { cost: 120, rent: 25, colorGroup: 'brown' }, propertyOnLand('cost', 'rent')),
-        cell('cell_5', 'Penalty -40', 'penalty', 650, 550, '#FFCDD2', { amount: 40 }, penaltyOnLand('amount')),
-        cell('cell_6', 'Street C', 'property', 50, 400, '#FFE0B2', { cost: 150, rent: 30, colorGroup: 'orange' }, propertyOnLand('cost', 'rent')),
-        cell('cell_7', 'Empty', 'empty', 200, 400, '#F5F5F5'),
-        cell('cell_8', 'Street D', 'property', 350, 400, '#FFE0B2', { cost: 180, rent: 35, colorGroup: 'orange' }, propertyOnLand('cost', 'rent')),
-        cell('cell_9', 'Bonus +70', 'bonus', 500, 400, '#C8E6C9', { amount: 70 }, bonusOnLand('amount')),
-        cell('cell_10', 'Street E', 'property', 650, 400, '#FFF9C4', { cost: 200, rent: 40, colorGroup: 'yellow' }, propertyOnLand('cost', 'rent')),
-        cell('cell_11', 'Penalty -60', 'penalty', 50, 250, '#FFCDD2', { amount: 60 }, penaltyOnLand('amount')),
-        cell('cell_12', 'Street F', 'property', 200, 250, '#FFF9C4', { cost: 220, rent: 45, colorGroup: 'yellow' }, propertyOnLand('cost', 'rent')),
-        cell('cell_13', 'Empty', 'empty', 350, 250, '#F5F5F5'),
-        cell('cell_14', 'Street G', 'property', 500, 250, '#E1BEE7', { cost: 240, rent: 50, colorGroup: 'purple' }, propertyOnLand('cost', 'rent')),
-        cell('cell_15', 'Bonus +100', 'bonus', 650, 250, '#C8E6C9', { amount: 100 }, bonusOnLand('amount')),
-        cell('cell_16', 'Street H', 'property', 50, 100, '#E1BEE7', { cost: 260, rent: 55, colorGroup: 'purple' }, propertyOnLand('cost', 'rent')),
+        cell('cell_1', 'Start', 'start', 0, 576, '#4CAF50'),
+        cell('cell_2', 'Street A', 'property', 192, 576, '#E3F2FD', { cost: 100, rent: 20, colorGroup: 'brown' }, propertyOnLand('cost', 'rent')),
+        cell('cell_3', 'Bonus +50', 'bonus', 384, 576, '#C8E6C9', { amount: 50 }, bonusOnLand('amount')),
+        cell('cell_4', 'Street B', 'property', 576, 576, '#E3F2FD', { cost: 120, rent: 25, colorGroup: 'brown' }, propertyOnLand('cost', 'rent')),
+        cell('cell_5', 'Penalty -40', 'penalty', 0, 480, '#FFCDD2', { amount: 40 }, penaltyOnLand('amount')),
+        cell('cell_6', 'Street C', 'property', 192, 480, '#FFE0B2', { cost: 150, rent: 30, colorGroup: 'orange' }, propertyOnLand('cost', 'rent')),
+        cell('cell_7', 'Empty', 'empty', 384, 480, '#F5F5F5'),
+        cell('cell_8', 'Street D', 'property', 576, 480, '#FFE0B2', { cost: 180, rent: 35, colorGroup: 'orange' }, propertyOnLand('cost', 'rent')),
+        cell('cell_9', 'Bonus +70', 'bonus', 0, 384, '#C8E6C9', { amount: 70 }, bonusOnLand('amount')),
+        cell('cell_10', 'Street E', 'property', 192, 384, '#FFF9C4', { cost: 200, rent: 40, colorGroup: 'yellow' }, propertyOnLand('cost', 'rent')),
+        cell('cell_11', 'Penalty -60', 'penalty', 384, 384, '#FFCDD2', { amount: 60 }, penaltyOnLand('amount')),
+        cell('cell_12', 'Street F', 'property', 576, 384, '#FFF9C4', { cost: 220, rent: 45, colorGroup: 'yellow' }, propertyOnLand('cost', 'rent')),
+        cell('cell_13', 'Empty', 'empty', 0, 288, '#F5F5F5'),
+        cell('cell_14', 'Street G', 'property', 192, 288, '#E1BEE7', { cost: 240, rent: 50, colorGroup: 'purple' }, propertyOnLand('cost', 'rent')),
+        cell('cell_15', 'Bonus +100', 'bonus', 384, 288, '#C8E6C9', { amount: 100 }, bonusOnLand('amount')),
+        cell('cell_16', 'Street H', 'property', 576, 288, '#E1BEE7', { cost: 260, rent: 55, colorGroup: 'purple' }, propertyOnLand('cost', 'rent')),
       ],
       edges: ['e1_cell_1_cell_2', 'e2_cell_2_cell_3', 'e3_cell_3_cell_4', 'e4_cell_4_cell_5',
         'e5_cell_5_cell_6', 'e6_cell_6_cell_7', 'e7_cell_7_cell_8', 'e8_cell_8_cell_9',
@@ -176,20 +176,20 @@ export function createDungeonRaceDemo(): GameDefinition {
       height: 400,
       cellSize: 96,
       cells: [
-        cell('start', 'Start', 'start', 50, 150, '#4CAF50'),
-        cell('trap', 'Trap -2 HP', 'trap', 200, 150, '#FFCDD2', [
+        cell('start', 'Start', 'start', 0, 96, '#4CAF50'),
+        cell('trap', 'Trap -2 HP', 'trap', 192, 96, '#FFCDD2', [
           action('lose_resource', { resource: 'health', amount: 2 }),
         ]),
-        cell('treasure', 'Treasure +5 Gold', 'treasure', 350, 150, '#FFF9C4', [
+        cell('treasure', 'Treasure +5 Gold', 'treasure', 384, 96, '#FFF9C4', [
           action('gain_resource', { resource: 'gold', amount: 5 }),
         ]),
-        cell('key', 'Key +1', 'key', 500, 150, '#E1BEE7', [
+        cell('key', 'Key +1', 'key', 576, 96, '#E1BEE7', [
           action('gain_resource', { resource: 'keys', amount: 1 }),
         ]),
-        cell('heal', 'Heal +2 HP', 'heal', 650, 150, '#C8E6C9', [
+        cell('heal', 'Heal +2 HP', 'heal', 768, 96, '#C8E6C9', [
           action('gain_resource', { resource: 'health', amount: 2 }),
         ]),
-        cell('finish', 'Finish!', 'finish', 800, 150, '#FFD700', [
+        cell('finish', 'Finish!', 'finish', 960, 96, '#FFD700', [
           action('finish_game'),
         ]),
       ],

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { GameDefinition, GameSession, PlayerState, ActionOption } from '../lib/types';
+  import type { GameDefinition, GameSession, PlayerState } from '../lib/types';
   import { api } from '../lib/api';
-  import BoardCanvas from './BoardCanvas.svelte';
+  import BoardView from './BoardView.svelte';
 
   let { currentGame, session, onSessionCreated, onBack }: {
     currentGame: GameDefinition;
@@ -33,13 +33,23 @@
   // --- Session state ---
   let currentSession = $state<GameSession | null>(session);
 
-  // Hotseat phases:
-  // 'idle' - initial setup
-  // 'turn_intro' - show "Pass to player X" screen
-  // 'rolling' - dice roll + movement
-  // 'action' - waiting for player action (pendingAction)
-  // 'turn_done' - show "Turn complete" screen
-  let phase = $state<'idle' | 'turn_intro' | 'rolling' | 'action' | 'turn_done'>('idle');
+  // --- Dice ---
+  let diceState = $state<'idle' | 'rolling' | 'result'>('idle');
+  let lastRolls = $state<number[]>([]);
+  let lastTotal = $state(0);
+  let diceTimerId = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Token animation ---
+  let animState = $state<{
+    playerId: string;
+    path: string[];
+    step: number;
+    session: GameSession;
+  } | null>(null);
+  let animTimerId = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Hotseat phases ---
+  let phase = $state<'idle' | 'turn_intro' | 'playing' | 'turn_done'>('idle');
 
   let lastLogLength = $state(0);
   let currentPlayer = $derived<PlayerState | undefined>(
@@ -50,29 +60,135 @@
     currentSession ? Object.keys(currentSession.state.players[0]?.resources || {}) : []
   );
 
+  let displayPlayers = $derived.by((): PlayerState[] => {
+    const s = currentSession;
+    if (!s) return [];
+    const players = s.state.players;
+    const a = animState;
+    if (!a) return players;
+    return players.map(p => {
+      if (p.id !== a.playerId) return p;
+      const animCellId = a.path[Math.min(a.step, a.path.length - 1)];
+      return { ...p, positionCellId: animCellId };
+    });
+  });
+
+  let isAnimating = $derived(animState !== null && animState.step < animState.path.length);
+
   // --- Phase transitions ---
   function showTurnIntro() {
     phase = 'turn_intro';
+    diceState = 'idle';
+    lastRolls = [];
+    lastTotal = 0;
   }
 
-  function startRollPhase() {
-    phase = 'rolling';
-    handleRoll();
+  async function handleRollStart() {
+    const sess = currentSession;
+    if (!sess) return;
+    diceState = 'rolling';
+    lastRolls = [];
+    lastTotal = 0;
+    lastLogLength = sess.state.log.length;
+
+    diceTimerId = setTimeout(async () => {
+      diceTimerId = null;
+      try {
+        const s = await api.rollDice(sess.id);
+
+        // Extract dice roll result from new events
+        const newEvents = s.state.log.slice(lastLogLength);
+        const diceEvt = newEvents.find(e => e.type === 'dice_roll');
+        if (diceEvt?.payload) {
+          lastRolls = diceEvt.payload.rolls || [];
+          lastTotal = diceEvt.payload.total || 0;
+        }
+
+        // Extract move event
+        const moveEvt = newEvents.find(e => e.type === 'move');
+        const path: string[] = moveEvt?.payload?.path;
+        const playerId: string = moveEvt?.payload?.playerId || sess.state.players[sess.state.currentPlayerIndex].id;
+
+        diceState = 'result';
+
+        // Start token animation if path exists
+        if (path && path.length > 0) {
+          animState = { playerId, path, step: 0, session: s };
+          startAnimStep();
+        } else {
+          currentSession = s;
+          checkPhaseAfterRoll(s);
+        }
+      } catch (e: any) {
+        error = e.message;
+        diceState = 'idle';
+        const refreshed = await api.getSession(sess.id);
+        currentSession = refreshed;
+        checkPhaseAfterRoll(refreshed);
+      }
+    }, 600);
   }
 
-  function showActionPhase() {
-    phase = 'action';
+  function startAnimStep() {
+    animTimerId = setTimeout(() => {
+      animTimerId = null;
+      if (!animState) return;
+      const nextStep = animState.step + 1;
+      if (nextStep >= animState.path.length) {
+        // Animation done
+        const s = animState.session;
+        animState = null;
+        currentSession = s;
+        checkPhaseAfterRoll(s);
+      } else {
+        animState = { ...animState, step: nextStep };
+        startAnimStep();
+      }
+    }, 300);
   }
 
-  function completeTurn() {
-    phase = 'turn_done';
+  function checkPhaseAfterRoll(s: GameSession) {
+    if (s.state.pendingAction) {
+      phase = 'playing';
+    } else {
+      phase = 'turn_done';
+    }
   }
 
-  function advanceToNextTurn() {
+  async function handleAction(actionId: string) {
+    if (!currentSession) return;
+    loading = true;
+    error = '';
+    try {
+      lastLogLength = currentSession.state.log.length;
+      const s = await api.performAction(currentSession.id, actionId);
+      currentSession = s;
+      phase = 'turn_done';
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
+  }
+
+  function handleAdvanceTurn() {
     showTurnIntro();
   }
 
-  // --- API calls ---
+  function cancelDice() {
+    if (diceTimerId) {
+      clearTimeout(diceTimerId);
+      diceTimerId = null;
+    }
+    if (animTimerId) {
+      clearTimeout(animTimerId);
+      animTimerId = null;
+    }
+    animState = null;
+    diceState = 'idle';
+  }
+
+  // --- Session lifecycle ---
   async function startSession() {
     loading = true;
     error = '';
@@ -89,58 +205,12 @@
     }
   }
 
-  async function handleRoll() {
-    if (!currentSession) return;
-    loading = true;
-    error = '';
-    try {
-      lastLogLength = currentSession.state.log.length;
-      const s = await api.rollDice(currentSession.id);
-      currentSession = s;
-      // After roll, check for pending action
-      if (s.state.pendingAction) {
-        showActionPhase();
-      } else {
-        completeTurn();
-      }
-    } catch (e: any) {
-      error = e.message;
-      // Still show roll result even on error
-      completeTurn();
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function handleAction(actionId: string) {
-    if (!currentSession) return;
-    loading = true;
-    error = '';
-    try {
-      lastLogLength = currentSession.state.log.length;
-      const s = await api.performAction(currentSession.id, actionId);
-      currentSession = s;
-      completeTurn();
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
-  }
-
-  // Auto-refresh for events
-  let autoRefresh = $state(false);
+  // --- Cleanup ---
   $effect(() => {
-    if (autoRefresh && currentSession?.state.status === 'active') {
-      const id = setInterval(async () => {
-        if (!currentSession) return;
-        try {
-          const s = await api.getSession(currentSession.id);
-          currentSession = s;
-        } catch (_) {}
-      }, 2000);
-      return () => clearInterval(id);
-    }
+    return () => {
+      if (diceTimerId) clearTimeout(diceTimerId);
+      if (animTimerId) clearTimeout(animTimerId);
+    };
   });
 </script>
 
@@ -210,7 +280,7 @@
           <h2>{currentPlayer?.name}'s Turn</h2>
           <p>Round {currentSession.state.roundNumber} · Turn {currentSession.state.turnNumber}</p>
           <p class="pass-msg">Pass control to {currentPlayer?.name}</p>
-          <button class="primary-btn" onclick={startRollPhase}>
+          <button class="primary-btn" onclick={showTurnIntro}>
             Start Turn
           </button>
         </div>
@@ -234,12 +304,7 @@
         </div>
       </div>
 
-    {:else if phase === 'rolling'}
-      <div class="rolling-screen">
-        <p>Rolling dice...</p>
-      </div>
-
-    {:else if phase === 'action'}
+    {:else}
       <div class="game-ui">
         <div class="sidebar">
           <div class="panel">
@@ -261,17 +326,57 @@
           </div>
 
           <div class="panel actions">
-            {#if currentSession.state.pendingAction}
-              <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
-              {#each currentSession.state.pendingAction.options || [] as opt}
-                <button
-                  class="action-btn"
-                  onclick={() => handleAction(opt.id)}
-                  disabled={loading}
-                >
-                  {opt.title}
+            {#if diceState === 'idle' && !isAnimating}
+              {#if currentSession.state.pendingAction}
+                <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {#each currentSession.state.pendingAction.options || [] as opt}
+                  <button
+                    class="action-btn"
+                    onclick={() => handleAction(opt.id)}
+                    disabled={loading}
+                  >
+                    {opt.title}
+                  </button>
+                {/each}
+              {:else}
+                <button class="roll-btn" onclick={handleRollStart} disabled={loading}>
+                  Roll Dice
                 </button>
-              {/each}
+              {/if}
+            {:else if diceState === 'rolling'}
+              <div class="dice-rolling">
+                <div class="dice-animation">
+                  <div class="dice-face rolling">?</div>
+                  <div class="dice-face rolling">?</div>
+                </div>
+                <p>Rolling...</p>
+              </div>
+            {:else if diceState === 'result' && !isAnimating}
+              <div class="dice-result">
+                <div class="dice-row">
+                  {#each lastRolls as roll, i}
+                    <div class="dice-face result">{roll}</div>
+                  {/each}
+                </div>
+                <p class="dice-total">Total: <strong>{lastTotal}</strong></p>
+              </div>
+              {#if currentSession.state.pendingAction}
+                <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                {#each currentSession.state.pendingAction.options || [] as opt}
+                  <button
+                    class="action-btn"
+                    onclick={() => handleAction(opt.id)}
+                    disabled={loading}
+                  >
+                    {opt.title}
+                  </button>
+                {/each}
+              {/if}
+            {/if}
+            {#if isAnimating}
+              <div class="animating">
+                <p>Moving token...</p>
+              </div>
             {/if}
           </div>
 
@@ -286,33 +391,27 @@
         </div>
 
         <div class="board-area">
-          <BoardCanvas
-            board={currentGame.board}
-            players={currentSession.state.players}
+          <BoardView
+            board={currentSession.definition.board}
+            players={displayPlayers}
             cellStates={currentSession.state.cellStates}
-            mode="select"
           />
         </div>
       </div>
 
-    {:else if phase === 'turn_done'}
-      <div class="turn-done">
-        <h2>Turn Complete</h2>
-        <div class="turn-summary">
-          {#each [...currentSession.state.log].reverse().slice(0, 5) as event}
-            <div class="log-entry">{event.message}</div>
-          {/each}
+      {#if phase === 'turn_done' && !isAnimating}
+        <div class="turn-done-bar">
+          <button class="primary-btn" onclick={handleAdvanceTurn}>
+            Pass to Next Player
+          </button>
         </div>
-        <button class="primary-btn" onclick={advanceToNextTurn}>
-          Pass to Next Player
-        </button>
-      </div>
+      {/if}
     {/if}
   {/if}
 </div>
 
 <style>
-  .playtest { height: calc(100vh - 120px); }
+  .playtest { height: calc(100vh - 120px); display: flex; flex-direction: column; }
 
   /* Setup screen */
   .setup { max-width: 480px; margin: 20px auto; padding: 24px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; }
@@ -322,7 +421,6 @@
   .setup-players select { margin-left: 8px; padding: 6px 12px; background: #0d1b2a; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; }
   .player-config { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .player-config input { flex: 1; padding: 6px 8px; background: #0d1b2a; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; }
-  .player-config input[type="color"] { width: 40px; height: 32px; padding: 2px; background: transparent; border: 1px solid #0f3460; border-radius: 4px; cursor: pointer; }
   .setup > button { display: block; width: 100%; padding: 12px; background: #e94560; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 12px; }
 
   /* Turn intro screen */
@@ -338,7 +436,7 @@
   .quick-resources { width: 280px; padding: 16px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; }
   .quick-resources h3 { margin: 0 0 12px; color: #e94560; }
 
-  /* Player row used in multiple places */
+  /* Player row */
   .player-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; margin-bottom: 4px; font-size: 13px; }
   .player-row.active { background: #1a2a4a; border: 1px solid #e94560; }
   .player-row.bankrupt { opacity: 0.5; }
@@ -349,11 +447,8 @@
   .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
   .badge.bankrupt { background: #5c1a1a; color: #e94560; }
 
-  /* Rolling screen */
-  .rolling-screen { display: flex; align-items: center; justify-content: center; height: 200px; font-size: 24px; color: #f39c12; }
-
-  /* Action screen = game UI */
-  .game-ui { display: flex; gap: 12px; height: 100%; }
+  /* Game UI layout */
+  .game-ui { display: flex; gap: 12px; flex: 1; min-height: 0; }
   .sidebar { width: 280px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex-shrink: 0; }
   .panel { padding: 12px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; }
   .panel h3 { margin: 0 0 8px; color: #e94560; font-size: 14px; }
@@ -361,6 +456,32 @@
   .actions { text-align: center; }
   .action-btn { display: block; width: 100%; padding: 12px; margin-bottom: 8px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
   .action-btn:hover { opacity: 0.9; }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .roll-btn { width: 100%; padding: 16px; background: #f39c12; color: #111; border: none; border-radius: 8px; cursor: pointer; font-size: 18px; font-weight: bold; }
+  .roll-btn:hover { background: #e67e22; }
+  .roll-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Dice */
+  .dice-rolling, .dice-result, .animating { padding: 12px 0; }
+  .dice-animation { display: flex; justify-content: center; gap: 8px; }
+  .dice-row { display: flex; justify-content: center; gap: 8px; }
+  .dice-face {
+    width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+    background: white; color: #111; border-radius: 8px; font-size: 22px; font-weight: bold;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .dice-face.rolling { animation: diceShake 0.15s infinite alternate; background: #f5f5f5; color: #666; }
+  .dice-face.result { background: #f39c12; color: white; }
+  @keyframes diceShake {
+    from { transform: rotate(-8deg) scale(0.95); }
+    to { transform: rotate(8deg) scale(1.05); }
+  }
+  .dice-total { font-size: 16px; margin-top: 8px; }
+  .dice-total strong { color: #f39c12; font-size: 20px; }
+
+  .animating p { color: #4fc3f7; font-style: italic; }
+
   .log-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
   .log { flex: 1; overflow-y: auto; font-size: 11px; }
   .log-entry { padding: 4px 0; border-bottom: 1px solid #0f3460; color: #ccc; }
@@ -368,12 +489,11 @@
   .log-gain_resource, .log-game_start { color: #4CAF50; }
   .log-lose_resource, .log-transfer_resource { color: #e74c3c; }
   .log-game_over { color: #e94560; font-weight: bold; }
+
   .board-area { flex: 1; overflow: auto; border: 1px solid #0f3460; border-radius: 8px; background: #0d1b2a; }
 
-  /* Turn done screen */
-  .turn-done { max-width: 500px; margin: 60px auto; padding: 32px; background: #16213e; border: 1px solid #0f3460; border-radius: 12px; text-align: center; }
-  .turn-done h2 { color: #e94560; margin: 0 0 20px; }
-  .turn-summary { text-align: left; margin-bottom: 20px; }
+  /* Turn done bar */
+  .turn-done-bar { text-align: center; padding: 12px; border-top: 1px solid #0f3460; background: #16213e; }
 
   /* Game over */
   .game-over { max-width: 500px; margin: 40px auto; padding: 32px; background: #16213e; border: 1px solid #0f3460; border-radius: 12px; text-align: center; }

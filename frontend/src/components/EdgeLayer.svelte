@@ -1,71 +1,73 @@
 <script lang="ts">
   import type { EdgeDefinition, CellDefinition } from '../lib/types';
 
-  let { edges, cells, selectedEdgeId, onSelect }: {
+  let { edges, cells, cellSize, selectedEdgeId, onSelect }: {
     edges: EdgeDefinition[];
     cells: CellDefinition[];
+    cellSize: number;
     selectedEdgeId?: string;
     onSelect?: (id: string) => void;
   } = $props();
 
   let cellMap = $derived(new Map(cells.map(c => [c.id, c])));
 
-  function getArrowPath(edge: EdgeDefinition): string {
+  function edgePoints(edge: EdgeDefinition): { x1: number; y1: number; x2: number; y2: number } | null {
     const from = cellMap.get(edge.from);
     const to = cellMap.get(edge.to);
-    if (!from || !to) return '';
+    if (!from || !to) return null;
+    const half = cellSize / 2;
+    return {
+      x1: from.x + half,
+      y1: from.y + half,
+      x2: to.x + half,
+      y2: to.y + half,
+    };
+  }
 
-    const cx = 96 / 2;
-    const cy = 96 / 2;
-    const x1 = from.x + cx;
-    const y1 = from.y + cy;
-    const x2 = to.x + cx;
-    const y2 = to.y + cy;
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist === 0) return '';
-
-    const ux = dx / dist;
-    const uy = dy / dist;
-
-    const nx = -uy;
-    const ny = ux;
-
-    const r = 48;
-    const arrowLen = 12;
-    const arrowWidth = 6;
-
-    const sx = x1 + ux * r;
-    const sy = y1 + uy * r;
-    const ex = x2 - ux * r;
-    const ey = y2 - uy * r;
-
-    const ax1 = ex - ux * arrowLen + nx * arrowWidth;
-    const ay1 = ey - uy * arrowLen + ny * arrowWidth;
-    const ax2 = ex - ux * arrowLen - nx * arrowWidth;
-    const ay2 = ey - uy * arrowLen - ny * arrowWidth;
-
-    return `M${sx},${sy} L${ex},${ey} M${ax1},${ay1} L${ex},${ey} L${ax2},${ay2}`;
+  function handleClick(id: string, e: Event) {
+    e.stopPropagation();
+    onSelect?.(id);
   }
 </script>
 
-<svg class="edge-layer" width="100%" height="100%">
-  {#each edges as edge}
-    <path
-      d={getArrowPath(edge)}
-      class:selected={edge.id === selectedEdgeId}
-      stroke={edge.id === selectedEdgeId ? '#e94560' : '#666'}
-      stroke-width={edge.id === selectedEdgeId ? 3 : 2}
-      fill="none"
-      onclick={() => onSelect?.(edge.id)}
-      onkeydown={(e) => e.key === 'Enter' && onSelect?.(edge.id)}
-      role="button"
-      tabindex="0"
-      style="cursor: pointer;"
-    />
+<svg
+  class="edge-layer"
+  width={cellSize * Math.ceil(cells.reduce((m, c) => Math.max(m, c.x + cellSize), 0) / cellSize)}
+  height={cellSize * Math.ceil(cells.reduce((m, c) => Math.max(m, c.y + cellSize), 0) / cellSize)}
+>
+  {#each edges as edge (edge.id)}
+    {@const pts = edgePoints(edge)}
+    {#if pts}
+      <!-- Invisible wider path for click detection -->
+      <path
+        d="M {pts.x1} {pts.y1} L {pts.x2} {pts.y2}"
+        stroke="transparent"
+        stroke-width={Math.max(cellSize * 0.5, 12)}
+        fill="none"
+        style="cursor: pointer;"
+        onclick={(e) => handleClick(edge.id, e)}
+        onkeydown={(e) => e.key === 'Enter' && handleClick(edge.id, e)}
+        role="button"
+        tabindex="0"
+      />
+      <!-- Visible arrow -->
+      <line
+        x1={pts.x1}
+        y1={pts.y1}
+        x2={pts.x2}
+        y2={pts.y2}
+        stroke={edge.id === selectedEdgeId ? '#e94560' : '#4fc3f7'}
+        stroke-width="2"
+        marker-end="url(#arrowhead)"
+        style="pointer-events: none;"
+      />
+    {/if}
   {/each}
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4fc3f7" />
+    </marker>
+  </defs>
 </svg>
 
 <style>
@@ -73,9 +75,10 @@
     position: absolute;
     top: 0;
     left: 0;
-    pointer-events: all;
+    pointer-events: none;
+    z-index: 1;
   }
-  path {
-    marker-end: none;
+  .edge-layer line, .edge-layer path {
+    pointer-events: stroke;
   }
 </style>

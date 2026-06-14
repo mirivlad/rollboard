@@ -10,16 +10,18 @@
   let games = $state<GameSummary[]>([]);
   let currentGame = $state<GameDefinition | null>(null);
   let currentSession = $state<GameSession | null>(null);
-  let error = $state('');
+  let message = $state('');
+  let messageType = $state<'error' | 'success' | 'info'>('error');
   let loading = $state(false);
 
   async function loadGames() {
     loading = true;
-    error = '';
+    message = '';
     try {
       games = await api.listGames();
     } catch (e: any) {
-      error = e.message;
+      message = e.message;
+      messageType = 'error';
     } finally {
       loading = false;
     }
@@ -47,13 +49,14 @@
 
   async function openGame(id: string) {
     loading = true;
-    error = '';
+    message = '';
     try {
       currentGame = await api.getGame(id);
       currentSession = null;
       view = 'editor';
     } catch (e: any) {
-      error = e.message;
+      message = e.message;
+      messageType = 'error';
     } finally {
       loading = false;
     }
@@ -62,7 +65,7 @@
   async function saveGame() {
     if (!currentGame) return;
     loading = true;
-    error = '';
+    message = '';
     try {
       if (currentGame.id) {
         currentGame = await api.updateGame(currentGame.id, currentGame);
@@ -71,7 +74,8 @@
       }
       await loadGames();
     } catch (e: any) {
-      error = e.message;
+      message = e.message;
+      messageType = 'error';
     } finally {
       loading = false;
     }
@@ -79,20 +83,24 @@
 
   async function validateGame() {
     if (!currentGame) return;
-    error = '';
+    message = '';
     try {
       if (!currentGame.id) {
-        error = 'Save the game first before validating';
+        message = 'Save the game first before validating';
+        messageType = 'info';
         return;
       }
       const result = await api.validateGame(currentGame.id);
       if (result.valid) {
-        error = 'Game is valid!';
+        message = 'Game is valid!';
+        messageType = 'success';
       } else {
-        error = 'Validation errors:\n' + (result.errors || []).join('\n');
+        message = 'Validation errors:\n' + (result.errors || []).join('\n');
+        messageType = 'error';
       }
     } catch (e: any) {
-      error = e.message;
+      message = e.message;
+      messageType = 'error';
     }
   }
 
@@ -139,8 +147,8 @@
   </header>
 
   <main>
-    {#if error}
-      <div class="error">{error}</div>
+    {#if message}
+      <div class="message msg-{messageType}">{message}</div>
     {/if}
 
     {#if view === 'list'}
@@ -180,7 +188,10 @@
   button:hover { background: #0f3460; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   main { padding: 20px; }
-  .error { padding: 12px; background: #3e1a1a; border: 1px solid #e94560; border-radius: 6px; margin-bottom: 12px; white-space: pre-wrap; }
+  .message { padding: 12px; border-radius: 6px; margin-bottom: 12px; white-space: pre-wrap; }
+  .msg-error { background: #3e1a1a; border: 1px solid #e94560; color: #e94560; }
+  .msg-success { background: #1a3e1a; border: 1px solid #4CAF50; color: #4CAF50; }
+  .msg-info { background: #1a2a3e; border: 1px solid #4fc3f7; color: #4fc3f7; }
   .game-list { display: grid; gap: 12px; max-width: 600px; margin: 0 auto; }
   .game-card { padding: 16px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; cursor: pointer; transition: border-color 0.2s; }
   .game-card:hover { border-color: #e94560; }
