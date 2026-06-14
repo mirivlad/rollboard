@@ -12,41 +12,43 @@
   let selectedEdgeId = $state<string | undefined>();
   let mode = $state<'select' | 'connect'>('select');
 
-  let cols = $state(Math.max(1, Math.floor(game.board.width / game.board.cellSize)));
-  let rows = $state(Math.max(1, Math.floor(game.board.height / game.board.cellSize)));
-  let cellSize = $state(game.board.cellSize);
+  // Board geometry state — initialized from game on load
+  let cols = $state(1);
+  let rows = $state(1);
+  let cellSize = $state(96);
 
   let boardWidth = $derived(cols * cellSize);
   let boardHeight = $derived(rows * cellSize);
 
-  let diceCount = $state(game.rules.dice.count);
-  let diceSides = $state(game.rules.dice.sides);
+  // Dice and rules state
+  let diceCount = $state(1);
+  let diceSides = $state(6);
+  let title = $state('');
+  let startBonus = $state(0);
+  let startBonusResource = $state('');
 
   let selectedCell = $derived(
     game.board.cells.find(c => c.id === selectedCellId)
   );
 
   // Sync editor fields when switching to a different game
-  let lastGameId = $state<string>(game.id);
-  let title = $state(game.title);
+  // We read game.id reactively inside $effect so that when the parent
+  // passes a new GameDefinition (different game), all fields update
   $effect(() => {
-    if (game.id !== lastGameId) {
-      cols = Math.max(1, Math.floor(game.board.width / game.board.cellSize));
-      rows = Math.max(1, Math.floor(game.board.height / game.board.cellSize));
-      cellSize = game.board.cellSize;
-      diceCount = game.rules.dice.count;
-      diceSides = game.rules.dice.sides;
-      // Sync game title
-      title = game.title;
-      // Sync start bonus
-      startBonus = game.rules.startBonus ?? 0;
-      startBonusResource = game.rules.startBonusResource ?? '';
-      lastGameId = game.id;
-      // Normalize board dimensions on load:
-      // ensure game.board.width/height match cols*cellSize, rows*cellSize
-      game.board.width = cols * cellSize;
-      game.board.height = rows * cellSize;
-    }
+    const gId = game.id;
+    const b = game.board;
+    const r = game.rules;
+    cols = Math.max(1, Math.floor(b.width / b.cellSize));
+    rows = Math.max(1, Math.floor(b.height / b.cellSize));
+    cellSize = b.cellSize;
+    diceCount = r.dice.count;
+    diceSides = r.dice.sides;
+    title = game.title;
+    startBonus = r.startBonus ?? 0;
+    startBonusResource = r.startBonusResource ?? '';
+    // Normalize board dimensions: ensure width/height match cols*cellSize
+    game.board.width = cols * cellSize;
+    game.board.height = rows * cellSize;
   });
 
   function normalizeBoard() {
@@ -81,10 +83,6 @@
     game.rules.dice.count = diceCount;
     game.rules.dice.sides = diceSides;
   }
-
-  // Start bonus state
-  let startBonus = $state(game.rules.startBonus ?? 0);
-  let startBonusResource = $state(game.rules.startBonusResource ?? '');
 
   // Start bonus sync: called when values change
   function updateStartBonus() {

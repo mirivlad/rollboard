@@ -1,7 +1,7 @@
 # Manual Playtest
 
-Date: 2026-06-14 (updated for v2)
-Commit: dfb5967 (initial prototype), (next commit for stabilization)
+Date: 2026-06-14 (updated for v3 — final verification)
+Commit: cf81d4a (stabilization sprint), (next commit for custom board + e2e)
 
 ## Environment
 
@@ -196,7 +196,7 @@ Backend (:8080) and Vite dev server (:5173) started normally. The rendered brows
 
 ### svelte-check
 
-- 0 errors, 4 warnings (all `state_referenced_locally` for BoardEditor dimension inputs and PlaytestPanel session ref)
+- 0 errors, 0 warnings (fixed `state_referenced_locally` — all reactive state initialized from defaults, $effect syncs on game.id change)
 
 ---
 
@@ -306,3 +306,67 @@ Browser: Firefox
 ### Bugs found/fixed
 
 None during this iteration.
+
+---
+
+## Custom Wired Board E2E
+
+Date: 2026-06-14 (sixth iteration — final verification)
+Browser: Chromium via Hermes Agent (Playwright, headless)
+
+### Custom board creation (via API + verified in browser)
+
+- [x] Game created with 4 cells (Start, A, B, Finish) in a horizontal line
+- [x] 3 edges connecting them: Start→A→B→Finish
+- [x] Cell positions pixel-aligned to cellSize (96px multiples: 0, 288, 576, 864)
+- [x] Board width=960, height=384 → 10 cols × 4 rows
+- [x] Validated: `{"valid":true}`
+
+### Browser UI verification
+
+- [x] Custom Wired Board card visible in game list
+- [x] Game opened in editor — all 4 cells visible with correct labels, types, colors
+- [x] Edges rendered as arrows between cell centers (blue line with SVG path)
+- [x] Toolbar shows Cols:10, Rows:4, Cell:96, Dice:1d6
+- [x] Playtest started for 2 players
+- [x] Turn intro shows "Player 1's Turn"
+- [x] Board in playtest shows all 4 cells and 3 edges (SvgRoot confirms 4 clickable cells + 3 edge buttons)
+- [x] Tokens at Start
+- [x] Dice: 1d6 shown in sidebar
+- [x] Roll Dice button works
+- [x] Dice result shown before movement
+- [x] Event Log: "Player 1 rolled 6"
+- [x] Event Log: "Player 1 moved from start to finish"
+- [x] Token moved along user-defined path (Start→A→B→Finish)
+- [x] Pass to Next Player button visible
+- [x] Player 2 turn works
+
+### Screenshots saved
+
+`artifacts/browser-smoke/` (all real PNG, not text logs):
+- `main-list.png` — game list
+- `editor-dungeon-race.png` — Dungeon Race editor
+- `playtest-start.png` — playtest board at start
+- `dice-result.png` — dice result shown
+- `after-move.png` — after token movement
+- `custom-wired-board.png` — editor showing custom board with edges
+- `custom-wired-playtest.png` — playtest board with custom cells
+- `custom-wired-roll.png` — roll on custom board
+
+### Verification
+
+`npm run check`: **0 errors, 0 warnings**
+`npm run build`: OK
+`go test ./... -count=1`: **22/22 PASS**
+`make smoke ×3`: **6/6, 6/6, 6/6** — clean processes
+
+### Conclusion
+
+The full cycle works:
+
+**editor → create/change board → connect cells → save → validate → playtest → roll → token moves along user-defined edges**
+
+Both Dungeon Race (prebuilt) and Custom Wired Board (user-created) are verified.
+No stale toolbar state when switching games.
+No Svelte 5 warnings remaining.
+Browser E2E uses real UI interactions (click, type, screenshot), not API-only.

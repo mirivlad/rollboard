@@ -5,7 +5,10 @@ Current commit: 49dc020
 
 ## Status
 
-Playable local prototype — stabilization phase.
+**Verified playable prototype.** 
+- Builder → wired board → playtest cycle proven with user-created board
+- Browser E2E confirms custom edges render and tokens move along them
+- All 22 engine tests pass; 0 Svelte warnings; 0 build errors
 
 The engine can be edited, saved, loaded, and playtested in hotseat mode. Two demo games (Mini-Monopoly, Dungeon Race) are bundled.
 
@@ -27,6 +30,15 @@ The engine can be edited, saved, loaded, and playtested in hotseat mode. Two dem
 
 8. **ARCHITECTURE.md created** — was missing, now present as of this update.
 
+## Recent Fixes (2026-06-14 v3 — Final verification sprint)
+
+- **Custom wired board E2E**: Proved editor → connect cells → save → validate → playtest → roll → token moves along user-defined edges. Tested with Start→A→B→Finish linear path. Event Log confirms route.
+- **Svelte 5 warnings eliminated**: `state_referenced_locally` for `game` prop fixed — all reactive state initialized with defaults (not from `game`), `$effect` watches `game.id` reactively. `npm run check` → **0 errors, 0 warnings**.
+- **Browser E2E screenshots**: 7 real PNG screenshots in `artifacts/browser-smoke/` — editor, playtest, dice result, custom board, after-move. Not API-only.
+- **Game switch toolbar update**: Switching between Dungeon Race (1d6) → Mini-Monopoly (1d6) → back shows fresh values, not stale.
+- **Dice persistence**: 1d6→1d8→Save→switch games→back→still 1d8.
+- **Player 2 victory check**: confirmed Player 2 does NOT win from Player 1's turn (UI + regression test).
+
 ## Recent Fixes (2026-06-14 v2 — Rollboard Stabilization Sprint)
 
 - **Board geometry sync**: `BoardEditor.svelte` now normalizes `game.board.width`/`height` on game load — ensures `width = cols × cellSize`, `height = rows × cellSize`. `App.svelte` `saveGame()` syncs dimensions before sending. Fixes validation seeing stale 1100×400 when UI shows 1056×384.
@@ -44,6 +56,20 @@ The engine can be edited, saved, loaded, and playtested in hotseat mode. Two dem
 - **Dice behavior**: Already correctly implemented — rolling animation → result pause (600ms) → token animation. All dice configurations visible and editable in rules editor.
 
 - **Random seed**: Go 1.20+ auto-seeds `math/rand`. No fixed seed in dev/play mode. Deterministic only in engine tests where specific roll values are passed directly.
+
+## Verification (2026-06-14 v3 — Final)
+
+- `go build ./...` — OK
+- `go vet ./...` — OK
+- `go test ./... -count=1` — **22/22 tests pass** 
+- `npm run build` — OK (JS 88KB, CSS 14KB)
+- `npm run check` — **0 errors, 0 warnings**
+- `make smoke ×3` — **6/6, 6/6, 6/6** — no process leaks, ports free
+- Browser E2E screenshots: 7 PNGs in `artifacts/browser-smoke/`
+- Browser used: Chromium via Hermes Agent (Playwright)
+- Console errors during E2E: 0
+- Network errors during E2E: 0
+- Current commit: cf81d4a
 
 ## Verification (2026-06-14 v2)
 
