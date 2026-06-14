@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CellDefinition, EdgeDefinition, RuleSet } from '../lib/types';
+  import type { CellDefinition, EdgeDefinition, RuleSet, ActionDefinition, ActionOption } from '../lib/types';
 
   let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect, onEdgeChange }: {
     cell: CellDefinition | null | undefined;
@@ -16,6 +16,27 @@
   let typeDef = $derived(cell ? rules.cellTypes[cell.type] : null);
   let cellEdges = $derived(edges.filter(e => e.from === cell?.id || e.to === cell?.id));
 
+  // --- Action type definitions ---
+  const ACTION_TYPES = [
+    { value: 'gain_resource', label: 'Gain Resource' },
+    { value: 'lose_resource', label: 'Lose Resource' },
+    { value: 'transfer_resource', label: 'Transfer Resource' },
+    { value: 'set_cell_owner', label: 'Set Cell Owner' },
+    { value: 'if_resource_ge', label: 'If Resource ≥' },
+    { value: 'finish_game', label: 'Finish Game' },
+    { value: 'log_message', label: 'Log Message' },
+  ];
+
+  const TARGET_OPTIONS = [
+    { value: 'current', label: 'Current Player' },
+    { value: 'owner', label: 'Cell Owner' },
+    { value: 'bank', label: 'Bank' },
+  ];
+
+  function resourceList(): string[] {
+    return Object.keys(rules.resources);
+  }
+
   function updateField(key: string, value: any) {
     if (!cell || !onCellChange) return;
     const updated = { ...cell, fields: { ...cell.fields, [key]: value } };
@@ -26,6 +47,85 @@
     if (!cell || !onCellChange) return;
     const updated = { ...cell, visual: { ...cell.visual, [key]: value } };
     onCellChange(updated);
+  }
+
+  // --- Action helpers ---
+  function getActions(list: 'onLand' | 'onPass'): ActionDefinition[] {
+    if (!cell) return [];
+    return cell[list] || [];
+  }
+
+  function setActions(list: 'onLand' | 'onPass', actions: ActionDefinition[]) {
+    if (!cell || !onCellChange) return;
+    if (list === 'onLand') {
+      onCellChange({ ...cell, onLand: actions });
+    } else {
+      onCellChange({ ...cell, onPass: actions });
+    }
+  }
+
+  function addAction(list: 'onLand' | 'onPass', type: string) {
+    const actions = getActions(list);
+    const newAction: ActionDefinition = { type };
+    // Set defaults based on type
+    if (type === 'gain_resource' || type === 'lose_resource') {
+      newAction.resource = resourceList()[0] || 'gold';
+      newAction.amount = 1;
+    } else if (type === 'transfer_resource') {
+      newAction.resource = resourceList()[0] || 'gold';
+      newAction.amount = 1;
+      newAction.target = 'owner';
+    } else if (type === 'set_cell_owner') {
+      newAction.target = 'current';
+    } else if (type === 'if_resource_ge') {
+      newAction.resource = resourceList()[0] || 'gold';
+      newAction.amount = 1;
+      newAction.then = [];
+      newAction.else = [];
+    } else if (type === 'log_message') {
+      newAction.title = 'New message';
+    }
+    setActions(list, [...actions, newAction]);
+  }
+
+  function removeAction(list: 'onLand' | 'onPass', index: number) {
+    const actions = getActions(list);
+    setActions(list, actions.filter((_, i) => i !== index));
+  }
+
+  function moveAction(list: 'onLand' | 'onPass', index: number, dir: -1 | 1) {
+    const actions = getActions(list);
+    const newIndex = index + dir;
+    if (newIndex < 0 || newIndex >= actions.length) return;
+    const swapped = [...actions];
+    [swapped[index], swapped[newIndex]] = [swapped[newIndex], swapped[index]];
+    setActions(list, swapped);
+  }
+
+  function updateAction(list: 'onLand' | 'onPass', index: number, updates: Partial<ActionDefinition>) {
+    const actions = getActions(list);
+    const updated = { ...actions[index], ...updates };
+    // Clear irrelevant fields when type changes
+    if (updates.type) {
+      const cleaned: ActionDefinition = { type: updated.type };
+      if (updated.resource !== undefined) cleaned.resource = updated.resource;
+      if (updated.amount !== undefined) cleaned.amount = updated.amount;
+      if (updated.target !== undefined) cleaned.target = updated.target;
+      if (updated.title !== undefined) cleaned.title = updated.title;
+      if (updated.then !== undefined) cleaned.then = updated.then;
+      if (updated.else !== undefined) cleaned.else = updated.else;
+      updated.actionId && (cleaned.actionId = updated.actionId);
+      Object.assign(updated, cleaned);
+    }
+    setActions(list, actions.map((a, i) => i === index ? updated : a));
+  }
+
+  function getActionField(action: ActionDefinition, field: string): any {
+    return (action as any)[field];
+  }
+
+  function setActionField(list: 'onLand' | 'onPass', index: number, field: string, value: any) {
+    updateAction(list, index, { [field]: value });
   }
 
   // --- Edge condition helpers ---
@@ -139,6 +239,193 @@
           {/if}
         </label>
       {/each}
+    {/if}
+
+    <!-- Actions Editor -->
+    {#if cell}
+      <hr />
+      <h4>Actions</h4>
+
+      <!-- On Land -->
+      <div class="action-list-section">
+        <div class="action-list-header">
+          <span class="action-list-title">On Land</span>
+          <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onLand', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
+            <option value="">+ Add</option>
+            {#each ACTION_TYPES as at}
+              <option value={at.value}>{at.label}</option>
+            {/each}
+          </select>
+        </div>
+        {#each getActions('onLand') as action, i}
+          <div class="action-item">
+            <div class="action-header">
+              <select class="action-type" value={action.type} onchange={(e) => setActionField('onLand', i, 'type', (e.target as HTMLSelectElement).value)}>
+                {#each ACTION_TYPES as at}
+                  <option value={at.value}>{at.label}</option>
+                {/each}
+              </select>
+              <div class="action-controls">
+                <button class="small" onclick={() => moveAction('onLand', i, -1)} disabled={i === 0}>↑</button>
+                <button class="small" onclick={() => moveAction('onLand', i, 1)} disabled={i === getActions('onLand').length - 1}>↓</button>
+                <button class="small danger" onclick={() => removeAction('onLand', i)}>✕</button>
+              </div>
+            </div>
+            <!-- Action fields -->
+            <div class="action-fields">
+              {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+              {:else if action.type === 'transfer_resource'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+                <label>Target
+                  <select value={action.target || 'owner'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
+                    {#each TARGET_OPTIONS as to}
+                      <option value={to.value}>{to.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {:else if action.type === 'set_cell_owner'}
+                <label>Owner
+                  <select value={action.target || 'current'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
+                    {#each TARGET_OPTIONS as to}
+                      <option value={to.value}>{to.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {:else if action.type === 'if_resource_ge'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+                <p class="hint">Nested then/else not yet editable in UI</p>
+              {:else if action.type === 'finish_game'}
+                <p class="hint">Ends the game. Current player wins.</p>
+              {:else if action.type === 'log_message'}
+                <label>Message
+                  <input value={action.title || ''} oninput={(e) => setActionField('onLand', i, 'title', (e.target as HTMLInputElement).value)} placeholder="Log message" />
+                </label>
+              {/if}
+            </div>
+          </div>
+        {/each}
+        {#if getActions('onLand').length === 0}
+          <p class="hint">No on-land actions</p>
+        {/if}
+      </div>
+
+      <!-- On Pass -->
+      <div class="action-list-section">
+        <div class="action-list-header">
+          <span class="action-list-title">On Pass</span>
+          <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onPass', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
+            <option value="">+ Add</option>
+            {#each ACTION_TYPES as at}
+              <option value={at.value}>{at.label}</option>
+            {/each}
+          </select>
+        </div>
+        {#each getActions('onPass') as action, i}
+          <div class="action-item">
+            <div class="action-header">
+              <select class="action-type" value={action.type} onchange={(e) => setActionField('onPass', i, 'type', (e.target as HTMLSelectElement).value)}>
+                {#each ACTION_TYPES as at}
+                  <option value={at.value}>{at.label}</option>
+                {/each}
+              </select>
+              <div class="action-controls">
+                <button class="small" onclick={() => moveAction('onPass', i, -1)} disabled={i === 0}>↑</button>
+                <button class="small" onclick={() => moveAction('onPass', i, 1)} disabled={i === getActions('onPass').length - 1}>↓</button>
+                <button class="small danger" onclick={() => removeAction('onPass', i)}>✕</button>
+              </div>
+            </div>
+            <div class="action-fields">
+              {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+              {:else if action.type === 'transfer_resource'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+                <label>Target
+                  <select value={action.target || 'owner'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
+                    {#each TARGET_OPTIONS as to}
+                      <option value={to.value}>{to.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {:else if action.type === 'set_cell_owner'}
+                <label>Owner
+                  <select value={action.target || 'current'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
+                    {#each TARGET_OPTIONS as to}
+                      <option value={to.value}>{to.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {:else if action.type === 'if_resource_ge'}
+                <label>Resource
+                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
+                    {#each resourceList() as res}
+                      <option value={res}>{res}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>Amount
+                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
+                </label>
+                <p class="hint">Nested then/else not yet editable in UI</p>
+              {:else if action.type === 'finish_game'}
+                <p class="hint">Ends the game. Current player wins.</p>
+              {:else if action.type === 'log_message'}
+                <label>Message
+                  <input value={action.title || ''} oninput={(e) => setActionField('onPass', i, 'title', (e.target as HTMLInputElement).value)} placeholder="Log message" />
+                </label>
+              {/if}
+            </div>
+          </div>
+        {/each}
+        {#if getActions('onPass').length === 0}
+          <p class="hint">No on-pass actions</p>
+        {/if}
+      </div>
     {/if}
 
     <hr />
@@ -313,5 +600,95 @@
     padding: 2px 6px;
     cursor: pointer;
     border-radius: 3px;
+  }
+
+  /* Action editor styles */
+  .action-list-section {
+    margin-bottom: 12px;
+  }
+  .action-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .action-list-title {
+    font-weight: bold;
+    color: #4fc3f7;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+  .action-type-select {
+    font-size: 11px;
+    padding: 2px 4px;
+    background: #0d1b2a;
+    border: 1px solid #0f3460;
+    color: #e0e0e0;
+    border-radius: 3px;
+    width: auto;
+  }
+  .action-item {
+    background: #0d1b2a;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    padding: 6px;
+  }
+  .action-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 4px;
+  }
+  .action-type {
+    flex: 1;
+    font-size: 11px;
+    padding: 2px 4px;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    color: #e0e0e0;
+    border-radius: 3px;
+  }
+  .action-controls {
+    display: flex;
+    gap: 2px;
+  }
+  .action-controls .small {
+    padding: 1px 4px;
+    font-size: 10px;
+  }
+  .action-controls .small:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .small.danger {
+    color: #e94560;
+    border-color: #e94560;
+  }
+  .action-fields {
+    margin-top: 6px;
+  }
+  .action-fields label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 10px;
+    color: #888;
+  }
+  .action-fields input, .action-fields select {
+    display: block;
+    width: 100%;
+    margin-top: 2px;
+    padding: 3px 6px;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    color: #e0e0e0;
+    border-radius: 3px;
+    box-sizing: border-box;
+    font-size: 11px;
+  }
+  .action-fields .hint {
+    font-size: 10px;
+    color: #555;
+    margin: 4px 0 0;
   }
 </style>

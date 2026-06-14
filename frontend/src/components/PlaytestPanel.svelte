@@ -100,6 +100,16 @@
 
   let isAnimating = $derived(animState !== null && animState.step < animState.path.length);
 
+  // Cleanup timers when session changes (e.g. HMR reload, game switch)
+  let prevSessionId = $state<string | null>(null);
+  $effect(() => {
+    const sid = currentSession?.id || null;
+    if (sid !== prevSessionId) {
+      cancelDice();
+      prevSessionId = sid;
+    }
+  });
+
   // --- Phase transitions ---
   function showTurnIntro() {
     phase = 'turn_intro';

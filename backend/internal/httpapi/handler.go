@@ -56,6 +56,10 @@ func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
 			g.Version = 1
 		}
 		if err := a.store.CreateGame(&g); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+				writeError(w, 409, "game with this id already exists")
+				return
+			}
 			writeError(w, 500, err.Error())
 			return
 		}

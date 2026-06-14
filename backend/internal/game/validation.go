@@ -9,6 +9,72 @@ type ValidationError struct {
 	Errors []string `json:"errors"`
 }
 
+// validateAction checks a single action definition for obvious errors.
+func validateAction(action ActionDefinition) []string {
+	var errs []string
+	if strings.TrimSpace(action.Type) == "" {
+		errs = append(errs, "action type must not be empty")
+		return errs
+	}
+	switch action.Type {
+	case "gain_resource", "lose_resource":
+		if strings.TrimSpace(action.Resource) == "" {
+			errs = append(errs, fmt.Sprintf("%s: resource is required", action.Type))
+		}
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, fmt.Sprintf("%s: amount must be non-negative", action.Type))
+		}
+	case "transfer_resource":
+		if strings.TrimSpace(action.Resource) == "" {
+			errs = append(errs, "transfer_resource: resource is required")
+		}
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "transfer_resource: amount must be non-negative")
+		}
+	case "finish_game":
+		// no required fields
+	case "log_message":
+		if strings.TrimSpace(action.Title) == "" {
+			errs = append(errs, "log_message: message (title) is required")
+		}
+	case "set_cell_owner":
+		if strings.TrimSpace(action.Target) == "" {
+			errs = append(errs, "set_cell_owner: target is required")
+		}
+	case "if_resource_ge":
+		if strings.TrimSpace(action.Resource) == "" {
+			errs = append(errs, "if_resource_ge: resource is required")
+		}
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "if_resource_ge: amount must be non-negative")
+		}
+		// Recursively validate nested then/else actions
+		for _, a := range action.Then {
+			errs = append(errs, validateAction(a)...)
+		}
+		for _, a := range action.Else {
+			errs = append(errs, validateAction(a)...)
+		}
+	default:
+		// Unknown action types are allowed (forward compatibility)
+	}
+	return errs
+}
+
+func validateActions(cellID string, listName string, actions []ActionDefinition, g *GameDefinition) []string {
+	var errs []string
+	if actions == nil {
+		return errs
+	}
+	for i, a := range actions {
+		aerrs := validateAction(a)
+		for _, e := range aerrs {
+			errs = append(errs, fmt.Sprintf("cell '%s' %s action[%d]: %s", cellID, listName, i, e))
+		}
+	}
+	return errs
+}
+
 func (ve *ValidationError) Error() string {
 	return strings.Join(ve.Errors, "; ")
 }
@@ -96,6 +162,11 @@ func ValidateDefinition(g *GameDefinition) *ValidationError {
 				errs = append(errs, fmt.Sprintf("cell type '%s' not defined in rules.cellTypes", c.Type))
 			}
 		}
+		// Validate actions
+		actionErrs := validateActions(c.ID, "onLand", c.OnLand, g)
+		errs = append(errs, actionErrs...)
+		actionErrs = validateActions(c.ID, "onPass", c.OnPass, g)
+		errs = append(errs, actionErrs...)
 	}
 
 	if !hasStart {

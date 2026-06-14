@@ -44,6 +44,9 @@ export interface EdgeCondition {
   resource?: string;
   amount?: number;
   label?: string;
+  dice_count?: number;
+  even?: boolean;
+  odd?: boolean;
 }
 
 export interface RuleSet {

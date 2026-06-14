@@ -53,29 +53,113 @@
   }
 
   async function createMiniMonopoly() {
-    const g = createMiniMonopolyDemo();
-    currentGame = g;
+    loading = true;
+    message = '';
+    try {
+      const g = createMiniMonopolyDemo();
+      const saved = await api.createGame(g);
+      currentGame = saved;
+    } catch (e: any) {
+      if (e.message.includes('already exists') || e.message.includes('409')) {
+        try {
+          currentGame = await api.getGame('mini-monopoly-demo');
+        } catch (e2: any) {
+          message = 'Demo load failed: ' + e2.message;
+          messageType = 'error';
+          return;
+        }
+      } else {
+        message = e.message;
+        messageType = 'error';
+        return;
+      }
+    } finally {
+      loading = false;
+    }
     currentSession = null;
     view = 'editor';
   }
 
   async function createDungeonRace() {
-    const g = createDungeonRaceDemo();
-    currentGame = g;
+    loading = true;
+    message = '';
+    try {
+      const g = createDungeonRaceDemo();
+      const saved = await api.createGame(g);
+      currentGame = saved;
+    } catch (e: any) {
+      if (e.message.includes('already exists') || e.message.includes('409')) {
+        try {
+          currentGame = await api.getGame('dungeon-race-demo');
+        } catch (e2: any) {
+          message = 'Demo load failed: ' + e2.message;
+          messageType = 'error';
+          return;
+        }
+      } else {
+        message = e.message;
+        messageType = 'error';
+        return;
+      }
+    } finally {
+      loading = false;
+    }
     currentSession = null;
     view = 'editor';
   }
 
   async function createBranching() {
-    const g = createBranchingDemo();
-    currentGame = g;
+    loading = true;
+    message = '';
+    try {
+      const g = createBranchingDemo();
+      const saved = await api.createGame(g);
+      currentGame = saved;
+    } catch (e: any) {
+      if (e.message.includes('already exists') || e.message.includes('409')) {
+        try {
+          currentGame = await api.getGame('branching-demo');
+        } catch (e2: any) {
+          message = 'Demo load failed: ' + e2.message;
+          messageType = 'error';
+          return;
+        }
+      } else {
+        message = e.message;
+        messageType = 'error';
+        return;
+      }
+    } finally {
+      loading = false;
+    }
     currentSession = null;
     view = 'editor';
   }
 
   async function createManualBranch() {
-    const g = createManualBranchDemo();
-    currentGame = g;
+    loading = true;
+    message = '';
+    try {
+      const g = createManualBranchDemo();
+      const saved = await api.createGame(g);
+      currentGame = saved;
+    } catch (e: any) {
+      if (e.message.includes('already exists') || e.message.includes('409')) {
+        try {
+          currentGame = await api.getGame('manual-branch-demo');
+        } catch (e2: any) {
+          message = 'Demo load failed: ' + e2.message;
+          messageType = 'error';
+          return;
+        }
+      } else {
+        message = e.message;
+        messageType = 'error';
+        return;
+      }
+    } finally {
+      loading = false;
+    }
     currentSession = null;
     view = 'editor';
   }

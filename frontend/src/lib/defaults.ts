@@ -105,7 +105,7 @@ export function createMiniMonopolyDemo(): GameDefinition {
   ];
 
   return {
-    id: '',
+    id: 'mini-monopoly-demo',
     title: 'Mini-Monopoly Demo',
     version: 1,
     board: {
@@ -178,7 +178,7 @@ export function createDungeonRaceDemo(): GameDefinition {
   });
 
   return {
-    id: '',
+    id: 'dungeon-race-demo',
     title: 'Dungeon Race Demo',
     version: 1,
     board: {
@@ -240,7 +240,7 @@ export function createBranchingDemo(): GameDefinition {
   const e = (id: string, from: string, to: string, condition: any) => ({ id, from, to, condition });
 
   return {
-    id: '',
+    id: 'branching-demo',
     title: 'Branching Demo',
     version: 1,
     board: {
@@ -286,7 +286,7 @@ export function createManualBranchDemo(): GameDefinition {
   const e = (id: string, from: string, to: string, condition: any) => ({ id, from, to, condition });
 
   return {
-    id: '',
+    id: 'manual-branch-demo',
     title: 'Manual Branch Demo',
     version: 1,
     board: {
