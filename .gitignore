@@ -24,6 +24,7 @@ logs/
 artifacts/
 *.log
 .worktrees/
+.superpowers/
 
 # Environment
 .env
