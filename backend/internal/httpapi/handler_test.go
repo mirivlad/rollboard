@@ -392,6 +392,15 @@ func TestAccountListsPublishedVersionsForRoomCreation(t *testing.T) {
 	}
 }
 
+func TestRealtimeErrorCodeDescribesMutedChat(t *testing.T) {
+	if code := realtimeErrorCode(room.ErrMemberMuted); code != "MEMBER_MUTED" {
+		t.Fatalf("realtimeErrorCode(ErrMemberMuted) = %q, want MEMBER_MUTED", code)
+	}
+	if details := realtimeErrorDetails(room.ErrMemberMuted); details != "chat is muted by the room host" {
+		t.Fatalf("realtimeErrorDetails(ErrMemberMuted) = %q, want muted chat explanation", details)
+	}
+}
+
 func TestPublishedVersionIsPublic(t *testing.T) {
 	catalogService := &fakeCatalog{version: &catalog.Version{
 		GameID: "game-id", VersionNumber: 1, Definition: game.GameDefinition{ID: "game-id", Title: "Published"},

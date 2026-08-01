@@ -111,7 +111,7 @@ ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
 1. The account that created the room starts it after at least two players join.
 2. Only the current player sees **Roll dice**; the browser sends an intention and the server returns the result.
 3. If the engine creates a choice, only the player named by the server can choose an option.
-4. Use the room chat for the current room. The host can mute or remove members through the API; UI controls for moderation are planned.
+4. Use the room chat for the current room. The host can mute/unmute or remove other members from the room roster; the server enforces those permissions.
 
 ### Run a Hotseat Playtest
 

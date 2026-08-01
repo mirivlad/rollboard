@@ -21,6 +21,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     }
     throw new Error(errorMsg);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -54,6 +57,8 @@ export const api = {
   getRoom(id: string): Promise<Room> { return request(`/rooms/${id}`); },
   joinRoom(id: string): Promise<RoomMember> { return request(`/rooms/${id}/join`, { method: 'POST' }); },
   listRoomMessages(id: string): Promise<RoomMessage[]> { return request(`/rooms/${id}/messages`); },
+  muteRoomMember(roomID: string, memberID: string, muted: boolean): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }); },
+  removeRoomMember(roomID: string, memberID: string): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}`, { method: 'DELETE' }); },
 
   getGame(id: string): Promise<GameDefinition> {
     return request(`/games/${id}`);

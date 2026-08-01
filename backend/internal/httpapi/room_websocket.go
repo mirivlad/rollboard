@@ -110,7 +110,7 @@ func (a *API) handleRoomWebSocket(w http.ResponseWriter, r *http.Request, roomID
 			continue
 		}
 		if _, err := a.hub.Submit(ctx, roomID, *actor, intent); err != nil {
-			if !send(realtimeError(realtimeErrorCode(err), "room intention was not accepted")) {
+			if !send(realtimeError(realtimeErrorCode(err), realtimeErrorDetails(err))) {
 				return
 			}
 		}
@@ -140,9 +140,18 @@ func realtimeErrorCode(err error) string {
 		return "GAME_NOT_ACTIVE"
 	case errors.Is(err, room.ErrNotHost):
 		return "NOT_HOST"
+	case errors.Is(err, room.ErrMemberMuted):
+		return "MEMBER_MUTED"
 	case errors.Is(err, realtime.ErrUnsupportedIntent):
 		return "INVALID_INTENT"
 	default:
 		return "ROOM_ACTION_REJECTED"
 	}
+}
+
+func realtimeErrorDetails(err error) string {
+	if errors.Is(err, room.ErrMemberMuted) {
+		return "chat is muted by the room host"
+	}
+	return "room intention was not accepted"
 }

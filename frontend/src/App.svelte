@@ -114,7 +114,7 @@
       <RoomLobby versions={publishedVersions} onCreate={createRoom} onJoin={joinRoom} {busy} />
     {:else if view === 'room' && currentRoom}
       <nav class="editor-actions"><button onclick={() => (view = 'rooms')}>← Rooms</button><code>{currentRoom.id}</code></nav>
-      <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} actor={roomActor} onRoom={(room) => (currentRoom = room)} />
+      <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} canModerate={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} actor={roomActor} onRoom={(room) => (currentRoom = room)} />
     {/if}
   </main>
 </div>
