@@ -1,4 +1,4 @@
-import type { CatalogGame, GameDefinition, GameSession, GameSummary, GameVersion, PlayerConfig, Principal, PublicUser } from './types';
+import type { CatalogGame, GameDefinition, GameSession, GameSummary, GameVersion, PlayerConfig, Principal, PublicUser, Room, RoomMember, RoomMessage } from './types';
 
 const BASE = '/api';
 
@@ -44,6 +44,13 @@ export const api = {
   saveDraft(id: string, g: GameDefinition): Promise<GameDefinition> { return request(`/games/${id}/draft`, { method: 'PUT', body: JSON.stringify(g) }); },
   publishDraft(id: string): Promise<GameVersion> { return request(`/games/${id}/publish`, { method: 'POST' }); },
   getVersion(id: string, number: number): Promise<GameVersion> { return request(`/games/${id}/versions/${number}`); },
+
+  createRoom(gameVersionId: string, title: string, maxPlayers: number): Promise<Room> {
+    return request('/rooms', { method: 'POST', body: JSON.stringify({ gameVersionId, title, maxPlayers }) });
+  },
+  getRoom(id: string): Promise<Room> { return request(`/rooms/${id}`); },
+  joinRoom(id: string): Promise<RoomMember> { return request(`/rooms/${id}/join`, { method: 'POST' }); },
+  listRoomMessages(id: string): Promise<RoomMessage[]> { return request(`/rooms/${id}/messages`); },
 
   getGame(id: string): Promise<GameDefinition> {
     return request(`/games/${id}`);

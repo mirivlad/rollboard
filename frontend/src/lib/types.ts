@@ -145,6 +145,40 @@ export interface GameVersion {
   publishedAt: string;
 }
 
+export interface RoomMember {
+  id: string;
+  roomId: string;
+  actorKind: 'user' | 'guest';
+  actorId: string;
+  playerId?: string;
+  displayName: string;
+  mutedAt?: string;
+  joinedAt: string;
+}
+
+export interface Room {
+  id: string;
+  gameVersionId: string;
+  hostUserId: string;
+  hostMemberId: string;
+  title: string;
+  maxPlayers: number;
+  status: 'lobby' | 'active' | 'finished';
+  sequence: number;
+  session?: GameSession;
+  members: RoomMember[];
+}
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  memberId: string;
+  displayName: string;
+  body: string;
+  createdAt: string;
+  sequence: number;
+}
+
 export interface GameSession {
   id: string;
   gameId: string;
