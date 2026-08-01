@@ -5,11 +5,12 @@
   import AuthPanel from './components/AuthPanel.svelte';
   import BoardEditor from './components/BoardEditor.svelte';
   import GameDashboard, { type Template } from './components/GameDashboard.svelte';
+  import GameSetup from './components/GameSetup.svelte';
   import PlaytestPanel from './components/PlaytestPanel.svelte';
   import RoomLobby from './components/RoomLobby.svelte';
   import RoomPlay from './components/RoomPlay.svelte';
 
-  let view = $state<'loading' | 'auth' | 'dashboard' | 'editor' | 'playtest' | 'rooms' | 'room'>('loading');
+  let view = $state<'loading' | 'auth' | 'dashboard' | 'setup' | 'editor' | 'playtest' | 'rooms' | 'room'>('loading');
   let principal = $state<Principal | null>(null);
   let currentGame = $state<GameDefinition | null>(null);
   let currentSession = $state<GameSession | null>(null);
@@ -50,11 +51,15 @@
     busy = true; message = '';
     try { const user: PublicUser = await api.login(email, password); principal = { kind: 'user', user }; view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
   }
-  async function create(template: Template, _advanced: boolean) {
+  async function create(template: Template, advanced: boolean) {
     if (principal?.kind !== 'user') { message = 'Create an account to save and publish games.'; return; }
     busy = true; message = '';
     const definition = template === 'mini-monopoly' ? createMiniMonopolyDemo() : template === 'dungeon-race' ? createDungeonRaceDemo() : createDefaultGame();
-    try { const game = await api.createDraft(definition); currentGame = await api.getDraft(game.id); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; }
+    try { const game = await api.createDraft(definition); currentGame = await api.getDraft(game.id); view = advanced ? 'editor' : 'setup'; } catch (error) { showError(error); } finally { busy = false; }
+  }
+  async function finishSetup(game: GameDefinition) {
+    busy = true; message = '';
+    try { currentGame = await api.saveDraft(game.id, game); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function saveGame() {
     if (!currentGame) return;
@@ -84,6 +89,8 @@
     {:else if view === 'dashboard'}
       {#if principal?.kind === 'user'}<GameDashboard displayName={displayName()} onCreate={create} {busy} />
       {:else}<RoomLobby versions={[]} onCreate={createRoom} onJoin={joinRoom} {busy} />{/if}
+    {:else if view === 'setup' && currentGame}
+      <GameSetup game={currentGame} onContinue={finishSetup} onAdvanced={finishSetup} />
     {:else if view === 'editor' && currentGame}
       <nav class="editor-actions"><button onclick={() => (view = 'dashboard')}>← Dashboard</button><button onclick={saveGame} disabled={busy}>Save draft</button><button onclick={publishGame} disabled={busy}>Publish</button><button onclick={() => (view = 'playtest')}>Playtest</button></nav>
       <BoardEditor game={currentGame} onsave={saveGame} />

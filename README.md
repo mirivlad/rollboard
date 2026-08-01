@@ -101,9 +101,10 @@ ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
 
 1. Create an account — guests can join rooms but cannot publish games.
 2. In **Your games**, choose **Blank board**, **Mini-Monopoly**, or **Dungeon Race**.
-3. Edit the definition, save the private draft, then select **Publish**.
-4. Open **Rooms**, select the published version, and create a room.
-5. Share the displayed room ID with other players. They may join as guests.
+3. The default guided step sets the title and dice; select **Advanced studio** before choosing a template to open the full editor immediately.
+4. Edit the definition, save the private draft, then select **Publish**.
+5. Open **Rooms**, select the published version, and create a room.
+6. Share the displayed room ID with other players. They may join as guests.
 
 ### Run an online room
 

@@ -11,7 +11,7 @@ Last updated: 2026-08-02
 - Host-created rooms, guest/account joins, host mute/kick, durable room-only chat.
 - Authoritative server start/roll/choice commands; out-of-turn commands are rejected.
 - In-process sequenced WebSocket hub with authenticated upgrade and origin checking.
-- Svelte author dashboard (template or blank), lobby, room view, WebSocket live state and chat UI.
+- Svelte author dashboard with template picker, guided basics or direct advanced editor, lobby, room view, WebSocket live state and chat UI.
 
 ## Verification completed on 2026-08-02
 
