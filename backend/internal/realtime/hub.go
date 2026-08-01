@@ -77,6 +77,7 @@ type roomClients struct {
 
 type client struct {
 	events chan Envelope
+	actor  identity.Actor
 	once   sync.Once
 }
 
@@ -104,7 +105,7 @@ func (h *Hub) Connect(ctx context.Context, roomID string, actor identity.Actor, 
 	if err != nil {
 		return nil, fmt.Errorf("encode room snapshot: %w", err)
 	}
-	c := &client{events: make(chan Envelope, 32)}
+	c := &client{events: make(chan Envelope, 32), actor: actor}
 	c.events <- Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload}
 	clients.clients[c] = struct{}{}
 	return &Client{Events: c.events, room: clients, self: c}, nil
@@ -179,7 +180,7 @@ func (h *Hub) Refresh(ctx context.Context, roomID string) error {
 	if err != nil {
 		return fmt.Errorf("encode refreshed room snapshot: %w", err)
 	}
-	clients.broadcast(Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload})
+	clients.broadcastToMembers(Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload}, stored.Members)
 	return nil
 }
 
@@ -196,6 +197,20 @@ func (h *Hub) clientsFor(roomID string) *roomClients {
 
 func (r *roomClients) broadcast(event Envelope) {
 	for c := range r.clients {
+		select {
+		case c.events <- event:
+		default:
+			r.removeLocked(c)
+		}
+	}
+}
+
+func (r *roomClients) broadcastToMembers(event Envelope, members []room.RoomMember) {
+	for c := range r.clients {
+		if !isMember(c.actor, members) {
+			r.removeLocked(c)
+			continue
+		}
 		select {
 		case c.events <- event:
 		default:

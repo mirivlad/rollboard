@@ -140,6 +140,41 @@ func TestHubRefreshBroadcastsLatestRoomState(t *testing.T) {
 	}
 }
 
+func TestHubRefreshDisconnectsRemovedMember(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	guest := identity.Guest{ID: "guest-id", DisplayName: "Guest"}
+	service := &fakeRoomService{room: &room.Room{ID: "room-id", Sequence: 1, Members: []room.RoomMember{
+		{ActorKind: "user", ActorID: host.ID},
+		{ActorKind: "guest", ActorID: guest.ID},
+	}}}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{User: &host}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostClient.Close()
+	guestClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{Guest: &guest}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestClient.Close()
+	receiveEnvelope(t, hostClient)
+	receiveEnvelope(t, guestClient)
+
+	service.room.Sequence = 2
+	service.room.Members = service.room.Members[:1]
+	if err := hub.Refresh(context.Background(), "room-id"); err != nil {
+		t.Fatal(err)
+	}
+	if event := receiveEnvelope(t, hostClient); event.Type != EventRoomState || event.Sequence != 2 {
+		t.Fatalf("host refresh event = %#v, want room state sequence 2", event)
+	}
+	assertClientClosed(t, guestClient)
+}
+
 func TestHubStartBroadcastsRoomStateWithAssignedPlayers(t *testing.T) {
 	host := identity.User{ID: "host-id", DisplayName: "Host"}
 	initial := &room.Room{ID: "room-id", Sequence: 1, Status: room.StatusLobby, Members: []room.RoomMember{{ActorKind: "user", ActorID: host.ID}}}
@@ -189,6 +224,18 @@ func assertNoEnvelope(t *testing.T, client *Client) {
 	case event := <-client.Events:
 		t.Fatalf("unexpected room event: %#v", event)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func assertClientClosed(t *testing.T, client *Client) {
+	t.Helper()
+	select {
+	case _, open := <-client.Events:
+		if open {
+			t.Fatal("client received an event after removal instead of being disconnected")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for removed client to disconnect")
 	}
 }
 
