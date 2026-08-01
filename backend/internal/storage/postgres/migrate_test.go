@@ -41,4 +41,14 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if count != 1 {
 		t.Errorf("migration count = %d, want 1", count)
 	}
+
+	for _, index := range []string{"games_owner_updated_at_idx", "game_versions_game_published_at_idx"} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1)`, index).Scan(&exists); err != nil {
+			t.Fatalf("look up index %q: %v", index, err)
+		}
+		if !exists {
+			t.Errorf("index %q does not exist", index)
+		}
+	}
 }
