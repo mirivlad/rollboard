@@ -13,6 +13,7 @@ import (
 	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
+	"rollboard/internal/room"
 	"rollboard/internal/storage"
 )
 
@@ -396,6 +397,94 @@ func TestRegisterClaimsCurrentGuest(t *testing.T) {
 	}
 }
 
+func TestRoomCreationRequiresAuthentication(t *testing.T) {
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{}).WithRooms(&fakeRooms{})
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"gameVersionId":"11111111-1111-1111-1111-111111111111","title":"Friday","maxPlayers":4}`))
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
+	}
+}
+
+func TestGuestCannotCreateRoom(t *testing.T) {
+	guest := identity.Guest{ID: "22222222-2222-2222-2222-222222222222", DisplayName: "Guest"}
+	rooms := &fakeRooms{}
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{actor: &identity.Actor{Guest: &guest}}).WithRooms(rooms)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"gameVersionId":"11111111-1111-1111-1111-111111111111","title":"Friday","maxPlayers":4}`))
+	addRoomSessionAndCSRF(request)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden || rooms.createCalled {
+		t.Fatalf("status = %d, createCalled=%v; want forbidden without creation", recorder.Code, rooms.createCalled)
+	}
+}
+
+func TestAccountCanCreateRoomWithCSRF(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", DisplayName: "Author"}
+	rooms := &fakeRooms{created: room.Room{ID: "room-id", GameVersionID: "33333333-3333-3333-3333-333333333333", Title: "Friday", MaxPlayers: 4, Status: room.StatusLobby}}
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).WithRooms(rooms)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"gameVersionId":"33333333-3333-3333-3333-333333333333","title":"Friday","maxPlayers":4}`))
+	addRoomSessionAndCSRF(request)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated || !rooms.createCalled {
+		t.Fatalf("status = %d, createCalled=%v; want 201 room creation", recorder.Code, rooms.createCalled)
+	}
+}
+
+func TestGuestCanJoinRoomWithCSRF(t *testing.T) {
+	guest := identity.Guest{ID: "22222222-2222-2222-2222-222222222222", DisplayName: "Guest"}
+	rooms := &fakeRooms{joined: room.RoomMember{ID: "member-id", RoomID: "room-id", ActorKind: "guest", ActorID: guest.ID}}
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{actor: &identity.Actor{Guest: &guest}}).WithRooms(rooms)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/rooms/room-id/join", nil)
+	addRoomSessionAndCSRF(request)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated || !rooms.joinCalled {
+		t.Fatalf("status = %d, joinCalled=%v; want 201 room join", recorder.Code, rooms.joinCalled)
+	}
+}
+
+func TestNonHostCannotMuteRoomMember(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", DisplayName: "Member"}
+	rooms := &fakeRooms{muteErr: room.ErrNotHost}
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).WithRooms(rooms)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/rooms/room-id/members/member-id/mute", strings.NewReader(`{"muted":true}`))
+	addRoomSessionAndCSRF(request)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden || !rooms.muteCalled {
+		t.Fatalf("status = %d, muteCalled=%v; want forbidden host moderation", recorder.Code, rooms.muteCalled)
+	}
+}
+
+func addRoomSessionAndCSRF(request *http.Request) {
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	request.Header.Set(csrfHeaderName, "csrf-token")
+}
+
 func cookieNamed(cookies []*http.Cookie, name string) (*http.Cookie, bool) {
 	for _, cookie := range cookies {
 		if cookie.Name == name {
@@ -429,6 +518,42 @@ type fakeCatalog struct {
 	createCalled     bool
 	version          *catalog.Version
 	getVersionCalled bool
+}
+
+type fakeRooms struct {
+	created      room.Room
+	joined       room.RoomMember
+	get          *room.Room
+	createErr    error
+	joinErr      error
+	muteErr      error
+	removeErr    error
+	createCalled bool
+	joinCalled   bool
+	muteCalled   bool
+	removeCalled bool
+}
+
+func (f *fakeRooms) Create(context.Context, identity.Actor, string, room.CreateInput) (room.Room, error) {
+	f.createCalled = true
+	return f.created, f.createErr
+}
+
+func (f *fakeRooms) Get(context.Context, string) (*room.Room, error) { return f.get, nil }
+
+func (f *fakeRooms) Join(context.Context, identity.Actor, string) (room.RoomMember, error) {
+	f.joinCalled = true
+	return f.joined, f.joinErr
+}
+
+func (f *fakeRooms) Mute(context.Context, identity.Actor, string, string, bool) error {
+	f.muteCalled = true
+	return f.muteErr
+}
+
+func (f *fakeRooms) Remove(context.Context, identity.Actor, string, string) error {
+	f.removeCalled = true
+	return f.removeErr
 }
 
 func (f *fakeCatalog) CreateGame(context.Context, string, game.GameDefinition) (catalog.Game, error) {

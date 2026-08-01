@@ -15,6 +15,7 @@ import (
 	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
+	"rollboard/internal/room"
 	"rollboard/internal/storage"
 )
 
@@ -29,6 +30,7 @@ type API struct {
 	store    storage.Store
 	identity identity.Service
 	catalog  CatalogService
+	rooms    RoomService
 	auth     AuthOptions
 }
 
@@ -38,6 +40,14 @@ type CatalogService interface {
 	SaveDraft(context.Context, string, string, game.GameDefinition) error
 	Publish(context.Context, string, string) (catalog.Version, error)
 	GetVersion(context.Context, string, int) (*catalog.Version, error)
+}
+
+type RoomService interface {
+	Create(context.Context, identity.Actor, string, room.CreateInput) (room.Room, error)
+	Get(context.Context, string) (*room.Room, error)
+	Join(context.Context, identity.Actor, string) (room.RoomMember, error)
+	Mute(context.Context, identity.Actor, string, string, bool) error
+	Remove(context.Context, identity.Actor, string, string) error
 }
 
 type guestClaimer interface {
@@ -56,6 +66,11 @@ func (a *API) WithIdentity(service identity.Service) *API {
 
 func (a *API) WithCatalog(service CatalogService) *API {
 	a.catalog = service
+	return a
+}
+
+func (a *API) WithRooms(service RoomService) *API {
+	a.rooms = service
 	return a
 }
 
@@ -88,6 +103,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/auth/logout", a.handleLogout)
 	mux.HandleFunc("/api/games", a.handleGames)
 	mux.HandleFunc("/api/games/", a.handleGameByID)
+	mux.HandleFunc("/api/rooms", a.handleRooms)
+	mux.HandleFunc("/api/rooms/", a.handleRoomByID)
 	mux.HandleFunc("/api/sessions/", a.handleSessions)
 }
 
@@ -412,6 +429,197 @@ func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET or POST")
+	}
+}
+
+func (a *API) handleRooms(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if actor.User == nil {
+		writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	var body struct {
+		GameVersionID string `json:"gameVersionId"`
+		Title         string `json:"title"`
+		MaxPlayers    int16  `json:"maxPlayers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+		return
+	}
+	created, err := a.rooms.Create(r.Context(), *actor, body.GameVersionID, room.CreateInput{Title: body.Title, MaxPlayers: body.MaxPlayers})
+	if err != nil {
+		writeRoomError(w, err, "create")
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (a *API) handleRoomByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/rooms/"), "/")
+	if path == "" {
+		a.handleRooms(w, r)
+		return
+	}
+	parts := strings.Split(path, "/")
+	roomID := parts[0]
+	if len(parts) == 1 {
+		a.handleRoom(w, r, roomID)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "join" {
+		a.handleRoomJoin(w, r, roomID)
+		return
+	}
+	if len(parts) == 4 && parts[1] == "members" && parts[3] == "mute" {
+		a.handleRoomMute(w, r, roomID, parts[2])
+		return
+	}
+	if len(parts) == 3 && parts[1] == "members" {
+		a.handleRoomRemoval(w, r, roomID, parts[2])
+		return
+	}
+	writeError(w, http.StatusNotFound, "NOT_FOUND", "not found", "unknown room endpoint")
+}
+
+func (a *API) handleRoom(w http.ResponseWriter, r *http.Request, roomID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	stored, err := a.rooms.Get(r.Context(), roomID)
+	if err != nil {
+		writeRoomError(w, err, "load")
+		return
+	}
+	if !actorIsRoomMember(*actor, stored.Members) {
+		writeError(w, http.StatusForbidden, "ROOM_MEMBERSHIP_REQUIRED", "room membership required", "join the room first")
+		return
+	}
+	writeJSON(w, http.StatusOK, stored)
+}
+
+func (a *API) handleRoomJoin(w http.ResponseWriter, r *http.Request, roomID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	member, err := a.rooms.Join(r.Context(), *actor, roomID)
+	if err != nil {
+		writeRoomError(w, err, "join")
+		return
+	}
+	writeJSON(w, http.StatusCreated, member)
+}
+
+func (a *API) handleRoomMute(w http.ResponseWriter, r *http.Request, roomID, memberID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	var body struct {
+		Muted *bool `json:"muted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Muted == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "muted must be a boolean")
+		return
+	}
+	if err := a.rooms.Mute(r.Context(), *actor, roomID, memberID, *body.Muted); err != nil {
+		writeRoomError(w, err, "moderate")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) handleRoomRemoval(w http.ResponseWriter, r *http.Request, roomID, memberID string) {
+	if r.Method != http.MethodDelete {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use DELETE")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	if err := a.rooms.Remove(r.Context(), *actor, roomID, memberID); err != nil {
+		writeRoomError(w, err, "moderate")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func actorIsRoomMember(actor identity.Actor, members []room.RoomMember) bool {
+	for _, member := range members {
+		if actor.User != nil && member.ActorKind == "user" && member.ActorID == actor.User.ID {
+			return true
+		}
+		if actor.Guest != nil && member.ActorKind == "guest" && member.ActorID == actor.Guest.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func writeRoomError(w http.ResponseWriter, err error, operation string) {
+	switch {
+	case errors.Is(err, room.ErrNotFound), errors.Is(err, room.ErrGameVersionNotFound), errors.Is(err, room.ErrMemberNotFound):
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "room resource not found", "check the room, member, or published game version")
+	case errors.Is(err, room.ErrAccountRequired), errors.Is(err, room.ErrNotHost):
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "room operation is not permitted", "check your account and room permissions")
+	case errors.Is(err, room.ErrAlreadyMember), errors.Is(err, room.ErrRoomFull), errors.Is(err, room.ErrRoomNotJoinable), errors.Is(err, room.ErrCannotRemoveHost):
+		writeError(w, http.StatusConflict, "ROOM_CONFLICT", "room operation cannot be completed", "refresh the room and try again")
+	default:
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not "+operation+" room", "try again later")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"rollboard/internal/config"
 	"rollboard/internal/httpapi"
 	"rollboard/internal/identity"
+	"rollboard/internal/room"
 	"rollboard/internal/storage/postgres"
 )
 
@@ -44,9 +45,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create catalog service: %v", err)
 	}
+	roomService, err := room.NewService(store.Pool(), catalogService)
+	if err != nil {
+		log.Fatalf("failed to create room service: %v", err)
+	}
 	api := httpapi.New(store).
 		WithIdentity(identityRepository).
 		WithCatalog(catalogService).
+		WithRooms(roomService).
 		WithAuthOptions(httpapi.AuthOptions{CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
