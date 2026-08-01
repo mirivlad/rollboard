@@ -23,6 +23,7 @@ tmp/
 logs/
 artifacts/
 *.log
+.worktrees/
 
 # Environment
 .env
