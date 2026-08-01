@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
 	"rollboard/internal/storage"
@@ -254,6 +255,147 @@ func TestLogoutRejectsMissingCSRFHeader(t *testing.T) {
 	}
 }
 
+func TestDraftRequiresAuthenticatedOwner(t *testing.T) {
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{}).WithCatalog(&fakeCatalog{})
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/games/game-id/draft", nil)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
+	}
+}
+
+func TestOwnerCanSaveDraftWithCSRF(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	catalogService := &fakeCatalog{}
+	api := New(fakeStore{}).
+		WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).
+		WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/games/game-id/draft", strings.NewReader(`{
+		"title":"Draft title","version":1,
+		"board":{"width":96,"height":96,"cellSize":96,"cells":[],"edges":[]},
+		"rules":{"dice":{"count":1,"sides":6},"resources":{},"cellTypes":{}}
+	}`))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	request.Header.Set(csrfHeaderName, "csrf-token")
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if !catalogService.saveCalled {
+		t.Fatal("SaveDraft was not called")
+	}
+}
+
+func TestOwnerCanPublishDraftWithCSRF(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	catalogService := &fakeCatalog{published: catalog.Version{GameID: "game-id", VersionNumber: 1, Definition: game.GameDefinition{Title: "Published"}}}
+	api := New(fakeStore{}).
+		WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).
+		WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/games/game-id/publish", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	request.Header.Set(csrfHeaderName, "csrf-token")
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusCreated, recorder.Body.String())
+	}
+	if !catalogService.publishCalled {
+		t.Fatal("Publish was not called")
+	}
+}
+
+func TestAccountCreatesOwnedDraftWithCSRF(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	catalogService := &fakeCatalog{created: catalog.Game{ID: "game-id", Title: "Draft title", OwnerUserID: user.ID}}
+	api := New(fakeStore{}).
+		WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).
+		WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/games", strings.NewReader(`{
+		"title":"Draft title","version":1,
+		"board":{"width":96,"height":96,"cellSize":96,"cells":[],"edges":[]},
+		"rules":{"dice":{"count":1,"sides":6},"resources":{},"cellTypes":{}}
+	}`))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	request.Header.Set(csrfHeaderName, "csrf-token")
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusCreated, recorder.Body.String())
+	}
+	if !catalogService.createCalled {
+		t.Fatal("CreateGame was not called")
+	}
+}
+
+func TestPublishedVersionIsPublic(t *testing.T) {
+	catalogService := &fakeCatalog{version: &catalog.Version{
+		GameID: "game-id", VersionNumber: 1, Definition: game.GameDefinition{ID: "game-id", Title: "Published"},
+	}}
+	api := New(fakeStore{}).WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/games/game-id/versions/1", nil)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if !catalogService.getVersionCalled {
+		t.Fatal("GetVersion was not called")
+	}
+}
+
+func TestRegisterClaimsCurrentGuest(t *testing.T) {
+	guest := identity.Guest{ID: "22222222-2222-2222-2222-222222222222", DisplayName: "Guest player"}
+	registered := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	identityService := &fakeIdentity{registerUser: registered, actor: &identity.Actor{Guest: &guest}}
+	api := New(fakeStore{}).WithIdentity(identityService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{
+		"email":"author@example.com","displayName":"Author","password":"correct horse battery staple"
+	}`))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "guest-session"})
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusCreated, recorder.Body.String())
+	}
+	if !identityService.claimCalled || identityService.claimedGuestID != guest.ID || identityService.claimedUserID != registered.ID {
+		t.Fatalf("guest claim = %#v, want guest %q claimed by user %q", identityService, guest.ID, registered.ID)
+	}
+	cookie, ok := cookieNamed(recorder.Result().Cookies(), sessionCookieName)
+	if !ok || cookie.Value != "opaque-user-session-token" {
+		t.Fatalf("cookies = %#v, want new account session cookie", recorder.Result().Cookies())
+	}
+}
+
 func cookieNamed(cookies []*http.Cookie, name string) (*http.Cookie, bool) {
 	for _, cookie := range cookies {
 		if cookie.Name == name {
@@ -268,15 +410,60 @@ type fakeStore struct {
 }
 
 type fakeIdentity struct {
-	registerUser identity.User
-	registerErr  error
-	guest        identity.Guest
-	loginUser    identity.User
-	actor        *identity.Actor
+	registerUser   identity.User
+	registerErr    error
+	guest          identity.Guest
+	loginUser      identity.User
+	actor          *identity.Actor
+	claimCalled    bool
+	claimedGuestID string
+	claimedUserID  string
+}
+
+type fakeCatalog struct {
+	draft            *catalog.Draft
+	saveCalled       bool
+	published        catalog.Version
+	publishCalled    bool
+	created          catalog.Game
+	createCalled     bool
+	version          *catalog.Version
+	getVersionCalled bool
+}
+
+func (f *fakeCatalog) CreateGame(context.Context, string, game.GameDefinition) (catalog.Game, error) {
+	f.createCalled = true
+	return f.created, nil
+}
+
+func (f *fakeCatalog) GetDraft(context.Context, string, string) (*catalog.Draft, error) {
+	return f.draft, nil
+}
+
+func (f *fakeCatalog) SaveDraft(context.Context, string, string, game.GameDefinition) error {
+	f.saveCalled = true
+	return nil
+}
+
+func (f *fakeCatalog) Publish(context.Context, string, string) (catalog.Version, error) {
+	f.publishCalled = true
+	return f.published, nil
+}
+
+func (f *fakeCatalog) GetVersion(context.Context, string, int) (*catalog.Version, error) {
+	f.getVersionCalled = true
+	return f.version, nil
 }
 
 func (f fakeIdentity) Register(context.Context, identity.RegistrationInput) (identity.User, error) {
 	return f.registerUser, f.registerErr
+}
+
+func (f *fakeIdentity) ClaimGuest(_ context.Context, guestID, userID string) (identity.Guest, error) {
+	f.claimCalled = true
+	f.claimedGuestID = guestID
+	f.claimedUserID = userID
+	return identity.Guest{ID: guestID}, nil
 }
 
 func (f fakeIdentity) CreateGuest(context.Context, string) (identity.Guest, error) {

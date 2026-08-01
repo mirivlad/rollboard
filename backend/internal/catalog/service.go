@@ -24,25 +24,25 @@ var (
 type Service struct{ pool *pgxpool.Pool }
 
 type Game struct {
-	ID          string
-	Title       string
-	OwnerUserID string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	OwnerUserID string    `json:"ownerUserId"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type Version struct {
-	ID            string
-	GameID        string
-	VersionNumber int
-	Definition    game.GameDefinition
-	PublishedAt   time.Time
+	ID            string              `json:"id"`
+	GameID        string              `json:"gameId"`
+	VersionNumber int                 `json:"versionNumber"`
+	Definition    game.GameDefinition `json:"definition"`
+	PublishedAt   time.Time           `json:"publishedAt"`
 }
 
 type Draft struct {
-	GameID     string
-	Definition game.GameDefinition
-	UpdatedAt  time.Time
+	GameID     string              `json:"gameId"`
+	Definition game.GameDefinition `json:"definition"`
+	UpdatedAt  time.Time           `json:"updatedAt"`
 }
 
 func NewService(pool *pgxpool.Pool) (*Service, error) {

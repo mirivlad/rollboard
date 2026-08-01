@@ -5,12 +5,15 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ADDR="${ROLLBOARD_SMOKE_ADDR:-127.0.0.1:18091}"
 DATABASE_URL="postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable"
 SERVER_PID=""
+COOKIE_JAR="$(mktemp)"
 
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
+
+  rm -f "$COOKIE_JAR"
 
   docker compose --project-directory "$ROOT_DIR" down --remove-orphans >/dev/null 2>&1 || true
 }
@@ -34,8 +37,17 @@ for attempt in $(seq 1 30); do
 done
 
 game_id="smoke-test-${RANDOM}-${RANDOM}"
+account_email="smoke-${RANDOM}-${RANDOM}@example.com"
 game="{\"id\":\"$game_id\",\"title\":\"Smoke Test\",\"version\":1,\"board\":{\"width\":96,\"height\":96,\"cellSize\":96,\"cells\":[{\"id\":\"start\",\"title\":\"Start\",\"type\":\"start\",\"x\":0,\"y\":0,\"visual\":{\"baseColor\":\"#4caf50\"},\"fields\":{}}],\"edges\":[]},\"rules\":{\"dice\":{\"count\":1,\"sides\":6},\"resources\":{},\"cellTypes\":{\"start\":{\"title\":\"Start\",\"fields\":{}}},\"startBonus\":0,\"startBonusResource\":\"\"}}"
-curl --noproxy '*' --fail --silent --show-error --request POST --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games" >/dev/null
+curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --cookie-jar "$COOKIE_JAR" \
+  --request POST --header 'Content-Type: application/json' --data '{"displayName":"Smoke guest"}' "http://$ADDR/api/auth/guest" >/dev/null
+curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --cookie-jar "$COOKIE_JAR" \
+  --request POST --header 'Content-Type: application/json' --data "{\"email\":\"$account_email\",\"displayName\":\"Smoke author\",\"password\":\"correct-horse-battery-staple\"}" "http://$ADDR/api/auth/register" >/dev/null
+csrf_token="$(awk '$6 == "rollboard_csrf" {print $7}' "$COOKIE_JAR")"
+[[ -n "$csrf_token" ]]
+created_game="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games")"
+game_id="$(printf '%s' "$created_game" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+[[ -n "$game_id" ]]
 loaded_game="$(curl --noproxy '*' --fail --silent --show-error "http://$ADDR/api/games/$game_id")"
 [[ "$loaded_game" == *"\"id\":\"$game_id\""* ]]
 validation="$(curl --noproxy '*' --fail --silent --show-error --request POST "http://$ADDR/api/games/$game_id/validate")"

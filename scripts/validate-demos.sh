@@ -15,13 +15,14 @@ PORT=$(( (RANDOM % 1000) + 9000 ))
 ADDR="127.0.0.1:${PORT}"
 DATABASE_URL="postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable"
 BACKEND_PID=""
+COOKIE_JAR="$(mktemp)"
 
 cleanup() {
   if [ -n "$BACKEND_PID" ]; then
     kill "$BACKEND_PID" 2>/dev/null || true
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
-  rm -f "$SERVER_BIN" 2>/dev/null || true
+  rm -f "$SERVER_BIN" "$COOKIE_JAR" 2>/dev/null || true
   docker compose --project-directory "$ROOT" down --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -70,6 +71,17 @@ echo "  Backend is healthy."
 docker compose --project-directory "$ROOT" exec -T postgres \
   psql -U rollboard -d rollboard_test -c 'TRUNCATE sessions, games CASCADE' >/dev/null
 
+curl --fail --silent --show-error --cookie "$COOKIE_JAR" --cookie-jar "$COOKIE_JAR" \
+  --request POST --header 'Content-Type: application/json' --data '{"displayName":"Demo validator"}' "http://$ADDR/api/auth/guest" >/dev/null
+account_email="demo-validator-${RANDOM}-${RANDOM}@example.com"
+curl --fail --silent --show-error --cookie "$COOKIE_JAR" --cookie-jar "$COOKIE_JAR" \
+  --request POST --header 'Content-Type: application/json' --data "{\"email\":\"$account_email\",\"displayName\":\"Demo validator\",\"password\":\"correct-horse-battery-staple\"}" "http://$ADDR/api/auth/register" >/dev/null
+CSRF_TOKEN="$(awk '$6 == "rollboard_csrf" {print $7}' "$COOKIE_JAR")"
+if [ -z "$CSRF_TOKEN" ]; then
+  echo "  FAIL: registration did not establish a CSRF token"
+  exit 1
+fi
+
 # --- Helper: POST a game definition and validate it ---
 validate_demo() {
   local name="$1"
@@ -77,13 +89,15 @@ validate_demo() {
   local game_id="$3"
 
   # Create game
-  local create_status
-  create_status=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST -H "Content-Type: application/json" \
-    -d "$payload" "http://$ADDR/api/games" 2>/dev/null || echo "000")
-
-  if [ "$create_status" != "200" ] && [ "$create_status" != "201" ]; then
-    echo "  FAIL: $name — create returned $create_status"
+  local created_game
+  if ! created_game=$(curl --fail --silent --show-error --cookie "$COOKIE_JAR" -H "X-CSRF-Token: $CSRF_TOKEN" \
+    -X POST -H "Content-Type: application/json" -d "$payload" "http://$ADDR/api/games"); then
+    echo "  FAIL: $name — create request failed"
+    return 1
+  fi
+  game_id="$(printf '%s' "$created_game" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+  if [ -z "$game_id" ]; then
+    echo "  FAIL: $name — create response has no game ID"
     return 1
   fi
 

@@ -1,15 +1,18 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
 	"rollboard/internal/storage"
@@ -25,7 +28,20 @@ const (
 type API struct {
 	store    storage.Store
 	identity identity.Service
+	catalog  CatalogService
 	auth     AuthOptions
+}
+
+type CatalogService interface {
+	CreateGame(context.Context, string, game.GameDefinition) (catalog.Game, error)
+	GetDraft(context.Context, string, string) (*catalog.Draft, error)
+	SaveDraft(context.Context, string, string, game.GameDefinition) error
+	Publish(context.Context, string, string) (catalog.Version, error)
+	GetVersion(context.Context, string, int) (*catalog.Version, error)
+}
+
+type guestClaimer interface {
+	ClaimGuest(context.Context, string, string) (identity.Guest, error)
 }
 
 type AuthOptions struct {
@@ -35,6 +51,11 @@ type AuthOptions struct {
 
 func (a *API) WithIdentity(service identity.Service) *API {
 	a.identity = service
+	return a
+}
+
+func (a *API) WithCatalog(service CatalogService) *API {
+	a.catalog = service
 	return a
 }
 
@@ -291,6 +312,33 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not register account", "try again later")
 		return
 	}
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		actor, err := a.identity.LookupSession(r.Context(), cookie.Value, time.Now())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not claim guest profile", "try again later")
+			return
+		}
+		if actor != nil && actor.Guest != nil {
+			claimer, ok := a.identity.(guestClaimer)
+			if !ok {
+				writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+				return
+			}
+			if _, err := claimer.ClaimGuest(r.Context(), actor.Guest.ID, user.ID); err != nil {
+				writeError(w, http.StatusConflict, "GUEST_CLAIM_FAILED", "could not claim guest profile", "sign in and try again")
+				return
+			}
+		}
+	}
+	_, token, err := a.identity.CreateUserSession(r.Context(), user.ID, time.Now().Add(a.auth.SessionTTL))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start account session", "try again later")
+		return
+	}
+	if err := a.setSessionCookies(w, token); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start account session", "try again later")
+		return
+	}
 	writeJSON(w, http.StatusCreated, user.Public())
 }
 
@@ -324,6 +372,26 @@ func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
 		var definition game.GameDefinition
 		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+			return
+		}
+		if a.catalog != nil {
+			actor, ok := a.currentActor(w, r)
+			if !ok {
+				return
+			}
+			if actor.User == nil {
+				writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+				return
+			}
+			if !requireCSRF(w, r) {
+				return
+			}
+			created, err := a.catalog.CreateGame(r.Context(), actor.User.ID, definition)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not create game draft", "try again later")
+				return
+			}
+			writeJSON(w, http.StatusCreated, created)
 			return
 		}
 		if strings.TrimSpace(definition.ID) == "" {
@@ -360,7 +428,15 @@ func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
 			a.handleValidate(w, r, parts[0])
 		case "playtest":
 			a.handlePlaytest(w, r, parts[0])
+		case "draft":
+			a.handleDraft(w, r, parts[0])
+		case "publish":
+			a.handlePublish(w, r, parts[0])
 		default:
+			if strings.HasPrefix(parts[1], "versions/") {
+				a.handleVersion(w, r, parts[0], strings.TrimPrefix(parts[1], "versions/"))
+				return
+			}
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "not found", "unknown game endpoint")
 		}
 		return
@@ -412,6 +488,118 @@ func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET, PUT, or DELETE")
 	}
+}
+
+func (a *API) handleVersion(w http.ResponseWriter, r *http.Request, gameID, rawNumber string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return
+	}
+	number, err := strconv.Atoi(rawNumber)
+	if err != nil || number < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_VERSION", "invalid version number", "use a positive integer")
+		return
+	}
+	version, err := a.catalog.GetVersion(r.Context(), gameID, number)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load published version", "try again later")
+		return
+	}
+	if version == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "published version not found", "check the game ID and version number")
+		return
+	}
+	writeJSON(w, http.StatusOK, version)
+}
+
+func (a *API) handlePublish(w http.ResponseWriter, r *http.Request, gameID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if actor.User == nil {
+		writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	version, err := a.catalog.Publish(r.Context(), actor.User.ID, gameID)
+	if errors.Is(err, catalog.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game draft not found", "check the game ID")
+		return
+	}
+	if errors.Is(err, catalog.ErrInvalidDefinition) {
+		writeError(w, http.StatusBadRequest, "INVALID_DEFINITION", "game definition is invalid", "fix validation errors before publishing")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not publish game", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusCreated, version)
+}
+
+func (a *API) handleDraft(w http.ResponseWriter, r *http.Request, gameID string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if actor.User == nil {
+		writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+		return
+	}
+	if r.Method == http.MethodPut {
+		if !requireCSRF(w, r) {
+			return
+		}
+		var definition game.GameDefinition
+		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+			return
+		}
+		if err := a.catalog.SaveDraft(r.Context(), actor.User.ID, gameID, definition); err != nil {
+			if errors.Is(err, catalog.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "game draft not found", "check the game ID")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not save game draft", "try again later")
+			return
+		}
+		definition.ID = gameID
+		writeJSON(w, http.StatusOK, definition)
+		return
+	}
+	draft, err := a.catalog.GetDraft(r.Context(), actor.User.ID, gameID)
+	if errors.Is(err, catalog.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game draft not found", "check the game ID")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game draft", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusOK, draft.Definition)
 }
 
 func (a *API) handleValidate(w http.ResponseWriter, r *http.Request, gameID string) {

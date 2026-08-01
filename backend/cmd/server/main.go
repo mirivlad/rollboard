@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 
+	"rollboard/internal/catalog"
 	"rollboard/internal/config"
 	"rollboard/internal/httpapi"
 	"rollboard/internal/identity"
@@ -39,8 +40,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create identity repository: %v", err)
 	}
+	catalogService, err := catalog.NewService(store.Pool())
+	if err != nil {
+		log.Fatalf("failed to create catalog service: %v", err)
+	}
 	api := httpapi.New(store).
 		WithIdentity(identityRepository).
+		WithCatalog(catalogService).
 		WithAuthOptions(httpapi.AuthOptions{CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
