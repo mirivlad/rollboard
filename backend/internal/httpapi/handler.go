@@ -8,178 +8,185 @@ import (
 	"strings"
 
 	"rollboard/internal/game"
-	"rollboard/internal/storage/sqlite"
+	"rollboard/internal/storage"
 )
 
 type API struct {
-	store *sqlite.Store
+	store storage.Store
 }
 
-func New(store *sqlite.Store) *API {
+type apiError struct {
+	Error   string `json:"error"`
+	Details string `json:"details,omitempty"`
+	Code    string `json:"code"`
+}
+
+func New(store storage.Store) *API {
 	return &API{store: store}
 }
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/healthz", a.Healthz)
+	mux.HandleFunc("/readyz", a.Readyz)
 	mux.HandleFunc("/api/health", a.handleHealth)
 	mux.HandleFunc("/api/games", a.handleGames)
 	mux.HandleFunc("/api/games/", a.handleGameByID)
 	mux.HandleFunc("/api/sessions/", a.handleSessions)
 }
 
+func (a *API) Healthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *API) Readyz(w http.ResponseWriter, r *http.Request) {
+	if err := a.store.Ping(r.Context()); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "service not ready", "database is unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
 func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "ok"})
+	a.Healthz(w, r)
 }
 
 func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		list, err := a.store.ListGames()
+		list, err := a.store.ListGames(r.Context())
 		if err != nil {
-			writeError(w, 500, err.Error())
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list games", "try again later")
 			return
 		}
-		if list == nil {
-			list = []sqlite.GameSummary{}
-		}
-		writeJSON(w, 200, list)
+		writeJSON(w, http.StatusOK, list)
 
 	case http.MethodPost:
-		var g game.GameDefinition
-		if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
-			writeError(w, 400, "invalid JSON: "+err.Error())
+		var definition game.GameDefinition
+		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
 			return
 		}
-		if strings.TrimSpace(g.ID) == "" {
-			g.ID = generateSlug(g.Title)
+		if strings.TrimSpace(definition.ID) == "" {
+			definition.ID = generateSlug(definition.Title)
 		}
-		if g.Version == 0 {
-			g.Version = 1
+		if definition.Version == 0 {
+			definition.Version = 1
 		}
-		if err := a.store.CreateGame(&g); err != nil {
-			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-				writeError(w, 409, "game with this id already exists")
+		if err := a.store.CreateGame(r.Context(), &definition); err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				writeError(w, http.StatusConflict, "CONFLICT", "game already exists", "choose a different game ID")
 				return
 			}
-			writeError(w, 500, err.Error())
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not create game", "try again later")
 			return
 		}
-		writeJSON(w, 201, g)
+		writeJSON(w, http.StatusCreated, definition)
 
 	default:
-		writeError(w, 405, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET or POST")
 	}
 }
 
 func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/games/")
-	id = strings.TrimSuffix(id, "/")
-
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/games/"), "/")
 	if id == "" {
 		a.handleGames(w, r)
 		return
 	}
-
 	if strings.Contains(id, "/") {
 		parts := strings.SplitN(id, "/", 2)
-		gameID := parts[0]
-		sub := parts[1]
-		switch sub {
+		switch parts[1] {
 		case "validate":
-			a.handleValidate(w, r, gameID)
-			return
+			a.handleValidate(w, r, parts[0])
 		case "playtest":
-			a.handlePlaytest(w, r, gameID)
-			return
+			a.handlePlaytest(w, r, parts[0])
 		default:
-			writeError(w, 404, "not found")
-			return
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "not found", "unknown game endpoint")
 		}
+		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		g, err := a.store.GetGame(id)
+		definition, err := a.store.GetGame(r.Context(), id)
 		if err != nil {
-			writeError(w, 500, err.Error())
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
 			return
 		}
-		if g == nil {
-			writeError(w, 404, "game not found")
+		if definition == nil {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
 			return
 		}
-		writeJSON(w, 200, g)
+		writeJSON(w, http.StatusOK, definition)
 
 	case http.MethodPut:
-		var g game.GameDefinition
-		if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
-			writeError(w, 400, "invalid JSON: "+err.Error())
+		var definition game.GameDefinition
+		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
 			return
 		}
-		g.ID = id
-		existing, err := a.store.GetGame(id)
+		definition.ID = id
+		existing, err := a.store.GetGame(r.Context(), id)
 		if err != nil {
-			writeError(w, 500, err.Error())
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
 			return
 		}
 		if existing == nil {
-			if g.Version == 0 {
-				g.Version = 1
+			if definition.Version == 0 {
+				definition.Version = 1
 			}
-			if err := a.store.CreateGame(&g); err != nil {
-				writeError(w, 500, err.Error())
-				return
-			}
+			err = a.store.CreateGame(r.Context(), &definition)
 		} else {
-			g.Version = existing.Version
-			if err := a.store.UpdateGame(&g); err != nil {
-				writeError(w, 500, err.Error())
-				return
-			}
+			definition.Version = existing.Version
+			err = a.store.UpdateGame(r.Context(), &definition)
 		}
-		writeJSON(w, 200, g)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not save game", "try again later")
+			return
+		}
+		writeJSON(w, http.StatusOK, definition)
 
 	case http.MethodDelete:
-		writeError(w, 501, "not implemented")
+		writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "game deletion is not available", "use a new draft instead")
 
 	default:
-		writeError(w, 405, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET, PUT, or DELETE")
 	}
 }
 
 func (a *API) handleValidate(w http.ResponseWriter, r *http.Request, gameID string) {
 	if r.Method != http.MethodPost {
-		writeError(w, 405, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
 		return
 	}
-	g, err := a.store.GetGame(gameID)
+	definition, err := a.store.GetGame(r.Context(), gameID)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
 		return
 	}
-	if g == nil {
-		writeError(w, 404, "game not found")
+	if definition == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
 		return
 	}
-	if err := game.ValidateDefinition(g); err != nil {
-		writeJSON(w, 200, map[string]any{"valid": false, "errors": err.Errors})
+	if err := game.ValidateDefinition(definition); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": err.Errors})
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"valid": true})
+	writeJSON(w, http.StatusOK, map[string]bool{"valid": true})
 }
 
 func (a *API) handlePlaytest(w http.ResponseWriter, r *http.Request, gameID string) {
 	if r.Method != http.MethodPost {
-		writeError(w, 405, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
 		return
 	}
-
-	g, err := a.store.GetGame(gameID)
+	definition, err := a.store.GetGame(r.Context(), gameID)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
 		return
 	}
-	if g == nil {
-		writeError(w, 404, "game not found")
+	if definition == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
 		return
 	}
 
@@ -188,12 +195,11 @@ func (a *API) handlePlaytest(w http.ResponseWriter, r *http.Request, gameID stri
 		Players []game.PlayerConfig `json:"players"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, 400, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
 		return
 	}
-
 	if len(body.Players) < 2 {
-		writeError(w, 400, "at least 2 players required")
+		writeError(w, http.StatusBadRequest, "INVALID_PLAYERS", "at least two players are required", "add another player")
 		return
 	}
 	if len(body.Players) > 6 {
@@ -203,134 +209,102 @@ func (a *API) handlePlaytest(w http.ResponseWriter, r *http.Request, gameID stri
 		body.Mode = "hotseat"
 	}
 
-	session := game.StartSession(g, body.Players)
+	session := game.StartSession(definition, body.Players)
 	session.Mode = body.Mode
-
-	if err := a.store.SaveSession(session); err != nil {
-		writeError(w, 500, err.Error())
+	if err := a.store.SaveSession(r.Context(), session); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start playtest", "try again later")
 		return
 	}
-	writeJSON(w, 201, session)
+	writeJSON(w, http.StatusCreated, session)
 }
 
 func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
-	id = strings.TrimSuffix(id, "/")
-
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/")
 	if id == "" {
-		writeError(w, 400, "session id required")
+		writeError(w, http.StatusBadRequest, "INVALID_SESSION", "session ID is required", "provide a session ID")
 		return
 	}
-
 	if strings.Contains(id, "/") {
 		parts := strings.SplitN(id, "/", 2)
-		sessionID := parts[0]
-		action := parts[1]
+		a.handleSessionCommand(w, r, parts[0], parts[1])
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	session, err := a.store.GetSession(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+		return
+	}
+	if session == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session not found", "check the session ID")
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
 
-		session, err := a.store.GetSession(sessionID)
-		if err != nil {
-			writeError(w, 500, err.Error())
-			return
-		}
-		if session == nil {
-			writeError(w, 404, "session not found")
-			return
-		}
-
-		switch action {
-		case "roll":
-			if r.Method != http.MethodPost {
-				writeError(w, 405, "method not allowed")
-				return
-			}
-			if session.State.Status != "active" {
-				writeError(w, 400, "game is not active")
-				return
-			}
-			if session.State.PendingAction != nil {
-				writeError(w, 400, "pending action must be resolved first")
-				return
-			}
-
-			roll, diceEvt := session.RollDice()
-			session.State.Log = append(session.State.Log, *diceEvt)
-			moveEvents := session.MoveCurrentPlayer(roll.Total, roll.Rolls, roll.Total)
-			session.State.Log = append(session.State.Log, moveEvents...)
-
-			// In hotseat mode, always show turn-pass screen after roll + move
-			// (turn was already advanced by MoveCurrentPlayer if no pending action)
-
-			if err := a.store.SaveSession(session); err != nil {
-				writeError(w, 500, err.Error())
-				return
-			}
-			writeJSON(w, 200, session)
-
-		case "actions":
-			if r.Method != http.MethodPost {
-				writeError(w, 405, "method not allowed")
-				return
-			}
-			var body struct {
-				ActionID string `json:"actionId"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				writeError(w, 400, "invalid JSON")
-				return
-			}
-
-			events, actionErr := session.ResolvePendingAction(body.ActionID)
-			if actionErr != nil {
-				writeError(w, 400, actionErr.Error())
-				return
-			}
-			session.State.Log = append(session.State.Log, events...)
-
-			if err := a.store.SaveSession(session); err != nil {
-				writeError(w, 500, err.Error())
-				return
-			}
-			writeJSON(w, 200, session)
-
-		case "next-turn":
-			// In hotseat mode, signal that the player acknowledges the turn end
-			if r.Method != http.MethodPost {
-				writeError(w, 405, "method not allowed")
-				return
-			}
-			if session.State.PendingAction != nil {
-				writeError(w, 400, "pending action must be resolved first")
-				return
-			}
-			// Turn is already advanced by roll+move, this is just a
-			// hotseat acknowledgement. We can re-save or just return.
-			if err := a.store.SaveSession(session); err != nil {
-				writeError(w, 500, err.Error())
-				return
-			}
-			writeJSON(w, 200, session)
-
-		default:
-			writeError(w, 404, "unknown action")
-		}
+func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessionID, command string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	session, err := a.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+		return
+	}
+	if session == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session not found", "check the session ID")
 		return
 	}
 
-	if r.Method == http.MethodGet {
-		session, err := a.store.GetSession(id)
+	switch command {
+	case "roll":
+		if session.State.Status != "active" {
+			writeError(w, http.StatusBadRequest, "INVALID_STATE", "game is not active", "start a new game")
+			return
+		}
+		if session.State.PendingAction != nil {
+			writeError(w, http.StatusBadRequest, "PENDING_ACTION", "pending action must be resolved first", "choose an available action")
+			return
+		}
+		roll, diceEvent := session.RollDice()
+		session.State.Log = append(session.State.Log, *diceEvent)
+		session.State.Log = append(session.State.Log, session.MoveCurrentPlayer(roll.Total, roll.Rolls, roll.Total)...)
+
+	case "actions":
+		var body struct {
+			ActionID string `json:"actionId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+			return
+		}
+		events, err := session.ResolvePendingAction(body.ActionID)
 		if err != nil {
-			writeError(w, 500, err.Error())
+			writeError(w, http.StatusBadRequest, "INVALID_ACTION", "action cannot be resolved", err.Error())
 			return
 		}
-		if session == nil {
-			writeError(w, 404, "session not found")
+		session.State.Log = append(session.State.Log, events...)
+
+	case "next-turn":
+		if session.State.PendingAction != nil {
+			writeError(w, http.StatusBadRequest, "PENDING_ACTION", "pending action must be resolved first", "choose an available action")
 			return
 		}
-		writeJSON(w, 200, session)
+
+	default:
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown session command", "use roll, actions, or next-turn")
 		return
 	}
 
-	writeError(w, 405, "method not allowed")
+	if err := a.store.SaveSession(r.Context(), session); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not save session", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func generateSlug(title string) string {
@@ -345,14 +319,14 @@ func generateSlug(title string) string {
 	return slug
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("writeJSON error: %v", err)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("write JSON response: %v", err)
 	}
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+func writeError(w http.ResponseWriter, status int, code, message, details string) {
+	writeJSON(w, status, apiError{Error: message, Details: details, Code: code})
 }

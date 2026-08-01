@@ -1,32 +1,30 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"runtime/debug"
 
+	"rollboard/internal/config"
 	"rollboard/internal/httpapi"
-	"rollboard/internal/storage/sqlite"
+	"rollboard/internal/storage/postgres"
 )
 
 func main() {
-	defaultAddr := os.Getenv("ROLLBOARD_ADDR")
-	if defaultAddr == "" {
-		defaultAddr = "127.0.0.1:8080"
-	}
-	defaultDSN := os.Getenv("ROLLBOARD_DB_PATH")
-	if defaultDSN == "" {
-		defaultDSN = "./data/rollboard.db"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("invalid configuration: %v", err)
 	}
 
-	addr := flag.String("addr", defaultAddr, "server address")
-	dsn := flag.String("dsn", defaultDSN, "sqlite DSN")
+	addr := flag.String("addr", cfg.Addr, "server address")
 	flag.Parse()
 
-	store, err := sqlite.New(*dsn)
+	store, err := postgres.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("failed to open storage: %v", err)
 	}
@@ -37,7 +35,7 @@ func main() {
 	api := httpapi.New(store)
 	api.RegisterRoutes(mux)
 
-	handler := recoveryMiddleware(loggerMiddleware(corsMiddleware(mux)))
+	handler := recoveryMiddleware(loggerMiddleware(corsMiddleware(mux, cfg.AppOrigin)))
 
 	log.Printf("rollboard server starting on %s", *addr)
 	if err := http.ListenAndServe(*addr, handler); err != nil {
@@ -45,14 +43,15 @@ func main() {
 	}
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler, allowedOrigin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(200)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
@@ -62,9 +61,11 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 func loggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: 200}
+		requestID := newRequestID()
+		w.Header().Set("X-Request-ID", requestID)
+		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(lrw, r)
-		log.Printf("%s %s %d", r.Method, r.URL.Path, lrw.statusCode)
+		log.Printf("request_id=%s method=%s path=%s status=%d", requestID, r.Method, r.URL.Path, lrw.statusCode)
 	})
 }
 
@@ -78,14 +79,22 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
+func newRequestID() string {
+	bytes := make([]byte, 12)
+	if _, err := rand.Read(bytes); err != nil {
+		return "unavailable"
+	}
+	return hex.EncodeToString(bytes)
+}
+
 func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("PANIC: %s %s: %v\n%s", r.Method, r.URL.Path, rec, string(debug.Stack()))
 				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(500)
-				fmt.Fprint(w, `{"error":"internal server error","details":"panic recovered; see backend logs"}`)
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprint(w, `{"error":"internal server error","details":"request failed unexpectedly","code":"INTERNAL_ERROR"}`)
 			}
 		}()
 		next.ServeHTTP(w, r)

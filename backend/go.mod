@@ -2,10 +2,7 @@ module rollboard
 
 go 1.24
 
-require (
-	github.com/jackc/pgx/v5 v5.7.2
-	github.com/mattn/go-sqlite3 v1.14.24
-)
+require github.com/jackc/pgx/v5 v5.7.2
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
