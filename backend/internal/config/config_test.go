@@ -44,3 +44,15 @@ func TestLoadRejectsInvalidServiceURL(t *testing.T) {
 		t.Fatal("Load() error = nil, want invalid ROLLBOARD_DATABASE_URL error")
 	}
 }
+
+func TestLoadReadsStaticDir(t *testing.T) {
+	t.Setenv("ROLLBOARD_STATIC_DIR", "/srv/rollboard/frontend")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.StaticDir != "/srv/rollboard/frontend" {
+		t.Errorf("StaticDir = %q, want configured directory", cfg.StaticDir)
+	}
+}

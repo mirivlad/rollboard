@@ -21,6 +21,7 @@ type Config struct {
 	RedisURL     string
 	CookieSecure bool
 	AppOrigin    string
+	StaticDir    string
 }
 
 func Load() (Config, error) {
@@ -35,6 +36,7 @@ func Load() (Config, error) {
 		RedisURL:     env("ROLLBOARD_REDIS_URL", defaultRedisURL),
 		CookieSecure: secure,
 		AppOrigin:    env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
+		StaticDir:    strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

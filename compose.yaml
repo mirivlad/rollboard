@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rollboard
+      POSTGRES_USER: rollboard
+      POSTGRES_PASSWORD: rollboard
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres-init/01-create-test-db.sql:/docker-entrypoint-initdb.d/01-create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rollboard -d rollboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+    environment:
+      ROLLBOARD_DATABASE_URL: postgres://rollboard:rollboard@postgres:5432/rollboard?sslmode=disable
+      ROLLBOARD_REDIS_URL: redis://redis:6379/0
+      ROLLBOARD_APP_ORIGIN: http://localhost:8080
+      ROLLBOARD_COOKIE_SECURE: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rollboard}
+      POSTGRES_USER: ${POSTGRES_USER:-rollboard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set_POSTGRES_PASSWORD}
+    volumes:
+      - rollboard_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    image: ${ROLLBOARD_IMAGE:-ghcr.io/rollboard/rollboard:latest}
+    environment:
+      ROLLBOARD_DATABASE_URL: postgres://${POSTGRES_USER:-rollboard}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rollboard}?sslmode=disable
+      ROLLBOARD_REDIS_URL: redis://redis:6379/0
+      ROLLBOARD_APP_ORIGIN: ${ROLLBOARD_APP_ORIGIN:?Set_ROLLBOARD_APP_ORIGIN}
+      ROLLBOARD_COOKIE_SECURE: "true"
+    ports:
+      - target: 8080
+        published: ${ROLLBOARD_PORT:-8080}
+        protocol: tcp
+        mode: ingress
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  rollboard_postgres_data:

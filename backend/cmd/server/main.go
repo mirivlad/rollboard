@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	"rollboard/internal/config"
@@ -34,6 +36,9 @@ func main() {
 
 	api := httpapi.New(store)
 	api.RegisterRoutes(mux)
+	if cfg.StaticDir != "" {
+		mux.Handle("/", spaHandler(cfg.StaticDir))
+	}
 
 	handler := recoveryMiddleware(loggerMiddleware(corsMiddleware(mux, cfg.AppOrigin)))
 
@@ -41,6 +46,18 @@ func main() {
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func spaHandler(staticDir string) http.Handler {
+	files := http.FileServer(http.Dir(staticDir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath := filepath.Join(staticDir, filepath.Clean(r.URL.Path))
+		if _, err := os.Stat(requestedPath); err == nil {
+			files.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	})
 }
 
 func corsMiddleware(next http.Handler, allowedOrigin string) http.Handler {

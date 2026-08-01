@@ -1,0 +1,11 @@
+.git
+.worktrees
+.superpowers
+.env
+artifacts
+backend/data
+data
+frontend/dist
+frontend/node_modules
+tmp
+logs
