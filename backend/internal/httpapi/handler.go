@@ -38,6 +38,8 @@ type API struct {
 
 type CatalogService interface {
 	CreateGame(context.Context, string, game.GameDefinition) (catalog.Game, error)
+	ListGames(context.Context, string) ([]catalog.Game, error)
+	ListVersions(context.Context, string) ([]catalog.Version, error)
 	GetDraft(context.Context, string, string) (*catalog.Draft, error)
 	SaveDraft(context.Context, string, string, game.GameDefinition) error
 	Publish(context.Context, string, string) (catalog.Version, error)
@@ -388,6 +390,23 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if a.catalog != nil {
+			actor, ok := a.currentActor(w, r)
+			if !ok {
+				return
+			}
+			if actor.User == nil {
+				writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+				return
+			}
+			games, err := a.catalog.ListGames(r.Context(), actor.User.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list your games", "try again later")
+				return
+			}
+			writeJSON(w, http.StatusOK, games)
+			return
+		}
 		list, err := a.store.ListGames(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list games", "try again later")
@@ -689,6 +708,10 @@ func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
 		a.handleGames(w, r)
 		return
 	}
+	if id == "versions" {
+		a.handleOwnedVersions(w, r)
+		return
+	}
 	if strings.Contains(id, "/") {
 		parts := strings.SplitN(id, "/", 2)
 		switch parts[1] {
@@ -756,6 +779,31 @@ func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET, PUT, or DELETE")
 	}
+}
+
+func (a *API) handleOwnedVersions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	if actor.User == nil {
+		writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+		return
+	}
+	versions, err := a.catalog.ListVersions(r.Context(), actor.User.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list your published versions", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusOK, versions)
 }
 
 func (a *API) handleVersion(w http.ResponseWriter, r *http.Request, gameID, rawNumber string) {

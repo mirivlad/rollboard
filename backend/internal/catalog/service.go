@@ -134,6 +134,61 @@ func (s *Service) GetDraft(ctx context.Context, ownerID, gameID string) (*Draft,
 	return &draft, nil
 }
 
+// ListGames returns only the caller's drafts, most recently updated first.
+func (s *Service) ListGames(ctx context.Context, ownerID string) ([]Game, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, title, owner_user_id::text, created_at, updated_at
+		FROM games
+		WHERE owner_user_id = $1
+		ORDER BY updated_at DESC, id DESC`, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list owned games: %w", err)
+	}
+	defer rows.Close()
+	games := make([]Game, 0)
+	for rows.Next() {
+		var listed Game
+		if err := rows.Scan(&listed.ID, &listed.Title, &listed.OwnerUserID, &listed.CreatedAt, &listed.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan owned game: %w", err)
+		}
+		games = append(games, listed)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate owned games: %w", err)
+	}
+	return games, nil
+}
+
+// ListVersions returns immutable published versions belonging to the caller.
+func (s *Service) ListVersions(ctx context.Context, ownerID string) ([]Version, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT version.id::text, version.game_id, version.version_number, version.definition_json, version.published_at
+		FROM game_versions AS version
+		JOIN games ON games.id = version.game_id
+		WHERE games.owner_user_id = $1
+		ORDER BY version.published_at DESC, version.id DESC`, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list owned game versions: %w", err)
+	}
+	defer rows.Close()
+	versions := make([]Version, 0)
+	for rows.Next() {
+		var listed Version
+		var raw []byte
+		if err := rows.Scan(&listed.ID, &listed.GameID, &listed.VersionNumber, &raw, &listed.PublishedAt); err != nil {
+			return nil, fmt.Errorf("scan owned game version: %w", err)
+		}
+		if err := json.Unmarshal(raw, &listed.Definition); err != nil {
+			return nil, fmt.Errorf("decode owned game version: %w", err)
+		}
+		versions = append(versions, listed)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate owned game versions: %w", err)
+	}
+	return versions, nil
+}
+
 func (s *Service) Publish(ctx context.Context, ownerID, gameID string) (Version, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

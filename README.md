@@ -192,7 +192,7 @@ Actions can:
 
 ## Current limitations
 
-- The room browser currently exposes the version published in the active author session; a full catalog/search and shareable invite links are still planned.
+- The author dashboard reloads private drafts and owned published versions. Public catalog discovery/search and shareable invite links are still planned.
 - The realtime hub is single-process. Redis is provisioned by Docker/Portainer, but cross-replica fan-out, presence and command idempotency are not implemented yet.
 - Browser verification covers two simultaneous clients creating/joining a room, live roster updates, starting, rolling, resolving a purchase choice and room chat; wider responsive-device coverage is still required before release.
 - No bot players — all players must be human.
@@ -260,6 +260,8 @@ Actions can:
 | POST | `/api/sessions/{id}/actions` | Resolve pending action (`{actionId}`) |
 | POST | `/api/auth/register` | Register an account and create a session |
 | POST | `/api/auth/guest` | Create a guest session |
+| GET | `/api/games` | List the authenticated author's drafts |
+| GET | `/api/games/versions` | List the authenticated author's published versions |
 | POST | `/api/rooms` | Create a room pinned to a published version |
 | GET | `/api/rooms/{id}` | Get room state (room members only) |
 | POST | `/api/rooms/{id}/join` | Join a room |

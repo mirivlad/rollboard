@@ -33,6 +33,9 @@ export const api = {
     return request('/games');
   },
 
+  listOwnedGames(): Promise<CatalogGame[]> { return request('/games'); },
+  listPublishedVersions(): Promise<GameVersion[]> { return request('/games/versions'); },
+
   me(): Promise<Principal> { return request('/auth/me'); },
   enterGuest(displayName: string): Promise<Principal> { return request('/auth/guest', { method: 'POST', body: JSON.stringify({ displayName }) }); },
   register(email: string, displayName: string, password: string): Promise<PublicUser> { return request('/auth/register', { method: 'POST', body: JSON.stringify({ email, displayName, password }) }); },

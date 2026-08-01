@@ -193,6 +193,79 @@ func TestDraftAccessIsOwnerOnlyAndInvalidDraftCannotPublish(t *testing.T) {
 	}
 }
 
+func TestListOwnedGamesAndPublishedVersions(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := identities.Register(ctx, identity.RegistrationInput{Email: "catalog-owner@example.com", DisplayName: "Owner", Password: "correct-horse-battery-staple"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := identities.Register(ctx, identity.RegistrationInput{Email: "catalog-other@example.com", DisplayName: "Other", Password: "correct-horse-battery-staple"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.CreateGame(ctx, owner.ID, validDefinition("First game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.CreateGame(ctx, owner.ID, validDefinition("Second game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Publish(ctx, owner.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	otherGame, err := service.CreateGame(ctx, other.ID, validDefinition("Other game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Publish(ctx, other.ID, otherGame.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	games, err := service.ListGames(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 2 || games[0].ID != second.ID || games[1].ID != first.ID {
+		t.Fatalf("ListGames() = %#v, want only owner games newest first", games)
+	}
+	versions, err := service.ListVersions(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 || versions[0].GameID != second.ID || versions[0].Definition.Title != "Second game" {
+		t.Fatalf("ListVersions() = %#v, want only owner's published version", versions)
+	}
+}
+
 func validDefinition(title string) game.GameDefinition {
 	return game.GameDefinition{
 		Title:   title,

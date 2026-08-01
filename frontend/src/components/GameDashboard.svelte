@@ -1,13 +1,17 @@
 <script lang="ts">
+  import type { CatalogGame } from '../lib/types';
+
   export type Template = 'blank' | 'mini-monopoly' | 'dungeon-race';
 
   type Props = {
     displayName: string;
     onCreate: (template: Template, advanced: boolean) => void | Promise<void>;
+    games: CatalogGame[];
+    onOpen: (gameId: string) => void | Promise<void>;
     busy?: boolean;
   };
 
-  let { displayName, onCreate, busy = false }: Props = $props();
+  let { displayName, onCreate, games, onOpen, busy = false }: Props = $props();
   let advanced = $state(false);
 </script>
 
@@ -38,7 +42,17 @@
 
   <section class="empty" aria-label="Draft list">
     <h2>Private drafts</h2>
-    <p>No drafts yet. Pick a template to create your first game.</p>
+    {#if games.length === 0}
+      <p>No drafts yet. Pick a template to create your first game.</p>
+    {:else}
+      <div class="drafts">
+        {#each games as game (game.id)}
+          <button class="draft" onclick={() => onOpen(game.id)} disabled={busy} aria-label={`Open ${game.title}`}>
+            <strong>{game.title}</strong><span>Updated {new Date(game.updatedAt).toLocaleDateString()}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </section>
 </section>
 
@@ -54,7 +68,7 @@
   .templates button { min-height: 142px; display: grid; align-content: center; gap: .55rem; padding: 1.1rem; border: 1px solid #2d4165; border-radius: 14px; background: linear-gradient(140deg, #172a49, #101a30); color: #f1f6ff; text-align: left; cursor: pointer; }
   .templates button:hover { border-color: #68cdf5; transform: translateY(-1px); }
   .templates span { color: #a9b9d7; line-height: 1.4; }
-  .empty { margin-top: 2rem; padding: 1.5rem; border: 1px dashed #34476b; border-radius: 14px; color: #aebbd4; }
+  .empty { margin-top: 2rem; padding: 1.5rem; border: 1px dashed #34476b; border-radius: 14px; color: #aebbd4; }.drafts{display:grid;gap:.7rem}.draft{display:flex;justify-content:space-between;gap:1rem;align-items:center;padding:.8rem;border:1px solid #30415f;border-radius:9px;background:#101a30;color:#eef3ff;text-align:left;cursor:pointer;font:inherit}.draft span{color:#aebbd4;font-size:.85rem}
   .empty p { margin-bottom: 0; }
   @media (max-width: 720px) { header { display: grid; } .templates { grid-template-columns: 1fr; } }
 </style>

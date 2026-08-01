@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room } from './lib/types';
+  import type { CatalogGame, GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room } from './lib/types';
   import { api } from './lib/api';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
   import AuthPanel from './components/AuthPanel.svelte';
@@ -17,6 +17,7 @@
   let message = $state('');
   let busy = $state(false);
   let publishedVersions = $state<GameVersion[]>([]);
+  let ownedGames = $state<CatalogGame[]>([]);
   let currentRoom = $state<Room | null>(null);
   let roomActor = $derived(principal?.kind === 'user'
     ? { kind: 'user' as const, id: principal.user.id }
@@ -24,6 +25,17 @@
 
   function showError(error: unknown) { message = error instanceof Error ? error.message : 'Something went wrong'; }
   function displayName() { return principal?.kind === 'user' ? principal.user.displayName : principal?.guest.displayName ?? ''; }
+
+  async function refreshCatalog() {
+    if (principal?.kind !== 'user') {
+      ownedGames = [];
+      publishedVersions = [];
+      return;
+    }
+    const [games, versions] = await Promise.all([api.listOwnedGames(), api.listPublishedVersions()]);
+    ownedGames = games;
+    publishedVersions = versions;
+  }
 
   async function restoreSession() {
     try {
@@ -33,7 +45,8 @@
         return;
       }
       principal = await api.me();
-      view = principal.kind === 'user' ? 'dashboard' : 'dashboard';
+      await refreshCatalog();
+      view = 'dashboard';
     } catch {
       view = 'auth';
     }
@@ -45,11 +58,11 @@
   }
   async function register(email: string, name: string, password: string) {
     busy = true; message = '';
-    try { const user = await api.register(email, name, password); principal = { kind: 'user', user }; view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
+    try { const user = await api.register(email, name, password); principal = { kind: 'user', user }; await refreshCatalog(); view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function login(email: string, password: string) {
     busy = true; message = '';
-    try { const user: PublicUser = await api.login(email, password); principal = { kind: 'user', user }; view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
+    try { const user: PublicUser = await api.login(email, password); principal = { kind: 'user', user }; await refreshCatalog(); view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function create(template: Template, advanced: boolean) {
     if (principal?.kind !== 'user') { message = 'Create an account to save and publish games.'; return; }
@@ -59,18 +72,19 @@
   }
   async function finishSetup(game: GameDefinition) {
     busy = true; message = '';
-    try { currentGame = await api.saveDraft(game.id, game); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; }
+    try { currentGame = await api.saveDraft(game.id, game); await refreshCatalog(); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function saveGame() {
     if (!currentGame) return;
     busy = true; message = '';
-    try { currentGame = await api.saveDraft(currentGame.id, currentGame); message = 'Draft saved'; } catch (error) { showError(error); } finally { busy = false; }
+    try { currentGame = await api.saveDraft(currentGame.id, currentGame); await refreshCatalog(); message = 'Draft saved'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function publishGame() {
     if (!currentGame) return;
     busy = true; message = '';
-    try { const version = await api.publishDraft(currentGame.id); publishedVersions = [version, ...publishedVersions.filter((item) => item.id !== version.id)]; message = `Published version ${version.versionNumber}. You can now create a multiplayer room.`; } catch (error) { showError(error); } finally { busy = false; }
+    try { const version = await api.publishDraft(currentGame.id); publishedVersions = [version, ...publishedVersions.filter((item) => item.id !== version.id)]; await refreshCatalog(); message = `Published version ${version.versionNumber}. You can now create a multiplayer room.`; } catch (error) { showError(error); } finally { busy = false; }
   }
+  async function openGame(gameID: string) { busy = true; message = ''; try { currentGame = await api.getDraft(gameID); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; } }
   async function createRoom(versionId: string, title: string, maxPlayers: number) { busy = true; message = ''; try { currentRoom = await api.createRoom(versionId, title || 'New room', maxPlayers); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
   async function joinRoom(roomId: string) { busy = true; message = ''; try { await api.joinRoom(roomId); currentRoom = await api.getRoom(roomId); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
   async function logout() { await api.logout(); principal = null; currentGame = null; currentSession = null; view = 'auth'; }
@@ -87,7 +101,7 @@
     {#if view === 'loading'}<p class="loading">Connecting to Rollboard…</p>
     {:else if view === 'auth'}<AuthPanel onGuest={enterGuest} onRegister={register} onLogin={login} {busy} error={message} />
     {:else if view === 'dashboard'}
-      {#if principal?.kind === 'user'}<GameDashboard displayName={displayName()} onCreate={create} {busy} />
+      {#if principal?.kind === 'user'}<GameDashboard displayName={displayName()} onCreate={create} games={ownedGames} onOpen={openGame} {busy} />
       {:else}<RoomLobby versions={[]} onCreate={createRoom} onJoin={joinRoom} {busy} />{/if}
     {:else if view === 'setup' && currentGame}
       <GameSetup game={currentGame} onContinue={finishSetup} onAdvanced={finishSetup} />

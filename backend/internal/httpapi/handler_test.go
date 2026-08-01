@@ -351,6 +351,47 @@ func TestAccountCreatesOwnedDraftWithCSRF(t *testing.T) {
 	}
 }
 
+func TestAccountListsItsCatalogGames(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	catalogService := &fakeCatalog{games: []catalog.Game{{ID: "game-id", Title: "Saved draft", OwnerUserID: user.ID}}}
+	api := New(fakeStore{}).
+		WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).
+		WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/games", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if !catalogService.listGamesCalled || !strings.Contains(recorder.Body.String(), `"id":"game-id"`) {
+		t.Fatalf("response = %s, listGamesCalled=%v; want owned catalog game", recorder.Body.String(), catalogService.listGamesCalled)
+	}
+}
+
+func TestAccountListsPublishedVersionsForRoomCreation(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", Email: "author@example.com", DisplayName: "Author"}
+	catalogService := &fakeCatalog{versions: []catalog.Version{{ID: "version-id", GameID: "game-id", VersionNumber: 1, Definition: game.GameDefinition{Title: "Published"}}}}
+	api := New(fakeStore{}).
+		WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).
+		WithCatalog(catalogService)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/games/versions", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"id":"version-id"`) {
+		t.Fatalf("status=%d response=%s, want owned published versions", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPublishedVersionIsPublic(t *testing.T) {
 	catalogService := &fakeCatalog{version: &catalog.Version{
 		GameID: "game-id", VersionNumber: 1, Definition: game.GameDefinition{ID: "game-id", Title: "Published"},
@@ -555,6 +596,9 @@ type fakeCatalog struct {
 	createCalled     bool
 	version          *catalog.Version
 	getVersionCalled bool
+	games            []catalog.Game
+	listGamesCalled  bool
+	versions         []catalog.Version
 }
 
 type fakeRooms struct {
@@ -636,6 +680,15 @@ func (f *fakeCatalog) Publish(context.Context, string, string) (catalog.Version,
 func (f *fakeCatalog) GetVersion(context.Context, string, int) (*catalog.Version, error) {
 	f.getVersionCalled = true
 	return f.version, nil
+}
+
+func (f *fakeCatalog) ListGames(context.Context, string) ([]catalog.Game, error) {
+	f.listGamesCalled = true
+	return f.games, nil
+}
+
+func (f *fakeCatalog) ListVersions(context.Context, string) ([]catalog.Version, error) {
+	return f.versions, nil
 }
 
 func (f fakeIdentity) Register(context.Context, identity.RegistrationInput) (identity.User, error) {
