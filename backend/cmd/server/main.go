@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -16,6 +17,7 @@ import (
 	"rollboard/internal/config"
 	"rollboard/internal/httpapi"
 	"rollboard/internal/identity"
+	"rollboard/internal/realtime"
 	"rollboard/internal/room"
 	"rollboard/internal/storage/postgres"
 )
@@ -49,11 +51,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create room service: %v", err)
 	}
+	realtimeHub, err := realtime.NewHub(roomService)
+	if err != nil {
+		log.Fatalf("failed to create realtime hub: %v", err)
+	}
+	appOrigin, err := url.Parse(cfg.AppOrigin)
+	if err != nil {
+		log.Fatalf("invalid application origin: %v", err)
+	}
 	api := httpapi.New(store).
 		WithIdentity(identityRepository).
 		WithCatalog(catalogService).
 		WithRooms(roomService).
-		WithAuthOptions(httpapi.AuthOptions{CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL})
+		WithRealtimeHub(realtimeHub).
+		WithAuthOptions(httpapi.AuthOptions{
+			CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL,
+			WebSocketOriginPatterns: []string{appOrigin.Host},
+		})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))

@@ -107,6 +107,86 @@ func TestRoomCreateJoinAndModerationAuthorization(t *testing.T) {
 	}
 }
 
+func TestRoomStartPinsPlayersAndRejectsOutOfTurnRoll(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostUser := registerRoomUser(t, ctx, identities, "start-host@example.com", "Host")
+	guestIdentity, err := identities.CreateGuest(ctx, "Guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogService, err := catalog.NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdGame, err := catalogService.CreateGame(ctx, hostUser.ID, roomDefinition("Realtime game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := catalogService.Publish(ctx, hostUser.ID, createdGame.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rooms, err := NewService(pool, catalogService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := identity.Actor{User: &hostUser}
+	guest := identity.Actor{Guest: &guestIdentity}
+	created, err := rooms.Create(ctx, host, version.ID, CreateInput{Title: "Realtime room", MaxPlayers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rooms.Join(ctx, guest, created.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	started, err := rooms.Start(ctx, host, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.Status != StatusActive || started.Session == nil || started.Session.Mode != "multiplayer" || len(started.Members) != 2 {
+		t.Fatalf("Start() = %#v, want active multiplayer session with two members", started)
+	}
+	if started.Members[0].PlayerID == "" || started.Members[1].PlayerID == "" {
+		t.Fatalf("Start() members = %#v, want durable player slots", started.Members)
+	}
+	if _, err := rooms.Roll(ctx, guest, created.ID); !errors.Is(err, ErrNotYourTurn) {
+		t.Fatalf("guest Roll() error = %v, want ErrNotYourTurn", err)
+	}
+	transition, err := rooms.Roll(ctx, host, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transition.Sequence != started.Sequence+1 || transition.Session == nil || len(transition.Events) == 0 {
+		t.Fatalf("Roll() = %#v, want persisted authoritative transition", transition)
+	}
+}
+
 func registerRoomUser(t *testing.T, ctx context.Context, identities *identity.Repository, email, displayName string) identity.User {
 	t.Helper()
 	user, err := identities.Register(ctx, identity.RegistrationInput{Email: email, DisplayName: displayName, Password: "correct-horse-battery-staple"})

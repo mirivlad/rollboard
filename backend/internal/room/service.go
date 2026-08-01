@@ -27,6 +27,12 @@ var (
 	ErrNotHost             = errors.New("host permission is required")
 	ErrMemberNotFound      = errors.New("room member not found")
 	ErrCannotRemoveHost    = errors.New("host cannot be removed")
+	ErrNotMember           = errors.New("room membership is required")
+	ErrRoomNotReady        = errors.New("room needs at least two members to start")
+	ErrGameNotActive       = errors.New("room game is not active")
+	ErrNotYourTurn         = errors.New("it is not this actor's turn")
+	ErrPendingAction       = errors.New("a pending action must be resolved first")
+	ErrNoPendingAction     = errors.New("there is no pending action")
 )
 
 const (
@@ -65,9 +71,18 @@ type RoomMember struct {
 	RoomID      string     `json:"roomId"`
 	ActorKind   string     `json:"actorKind"`
 	ActorID     string     `json:"actorId"`
+	PlayerID    string     `json:"playerId,omitempty"`
 	DisplayName string     `json:"displayName"`
 	MutedAt     *time.Time `json:"mutedAt,omitempty"`
 	JoinedAt    time.Time  `json:"joinedAt"`
+}
+
+// Transition is an authoritative room state change suitable for realtime broadcast.
+type Transition struct {
+	RoomID   string            `json:"roomId"`
+	Sequence uint64            `json:"sequence"`
+	Session  *game.GameSession `json:"session"`
+	Events   []game.GameEvent  `json:"events"`
 }
 
 func NewService(pool *pgxpool.Pool, catalogService *catalog.Service) (*Service, error) {
@@ -207,6 +222,142 @@ func (s *Service) Join(ctx context.Context, actor identity.Actor, roomID string)
 	return member, nil
 }
 
+// Start turns a lobby into a multiplayer session using only its pinned published
+// definition and the currently persisted room members.
+func (s *Service) Start(ctx context.Context, actor identity.Actor, roomID string) (*Room, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin room start: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := assertHost(ctx, tx, actor, roomID); err != nil {
+		return nil, err
+	}
+	stored, err := loadRoom(ctx, tx, roomID, true)
+	if err != nil {
+		return nil, err
+	}
+	if stored.Status != StatusLobby {
+		return nil, ErrRoomNotJoinable
+	}
+	if len(stored.Members) < 2 {
+		return nil, ErrRoomNotReady
+	}
+	version, err := s.catalog.GetVersionByID(ctx, stored.GameVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("load pinned game version: %w", err)
+	}
+	if version == nil {
+		return nil, ErrGameVersionNotFound
+	}
+	configs := make([]game.PlayerConfig, len(stored.Members))
+	for i, member := range stored.Members {
+		configs[i] = game.PlayerConfig{Name: member.DisplayName, Color: roomPlayerColors[i%len(roomPlayerColors)]}
+	}
+	session := game.StartSession(&version.Definition, configs)
+	session.Mode = "multiplayer"
+	startEvent := game.NewGameEvent("room_started", "Room game started", nil)
+	session.State.Log = append(session.State.Log, startEvent)
+	for i := range stored.Members {
+		stored.Members[i].PlayerID = session.State.Players[i].ID
+		if _, err := tx.Exec(ctx, `UPDATE room_members SET player_id = $3 WHERE room_id = $1 AND id = $2`, roomID, stored.Members[i].ID, stored.Members[i].PlayerID); err != nil {
+			return nil, fmt.Errorf("assign room player slot: %w", err)
+		}
+	}
+	stored.Session = session
+	stored.Status = StatusActive
+	if err := persistSession(ctx, tx, stored); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit room start: %w", err)
+	}
+	return stored, nil
+}
+
+// Roll validates the current player, resolves movement server-side and persists
+// one sequenced room transition.
+func (s *Service) Roll(ctx context.Context, actor identity.Actor, roomID string) (Transition, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Transition{}, fmt.Errorf("begin room roll: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	stored, err := loadRoom(ctx, tx, roomID, true)
+	if err != nil {
+		return Transition{}, err
+	}
+	member, err := currentMember(actor, stored.Members)
+	if err != nil {
+		return Transition{}, err
+	}
+	if stored.Status != StatusActive || stored.Session == nil || stored.Session.State.Status != "active" {
+		return Transition{}, ErrGameNotActive
+	}
+	if stored.Session.State.PendingAction != nil {
+		return Transition{}, ErrPendingAction
+	}
+	if stored.Session.CurrentPlayer().ID != member.PlayerID {
+		return Transition{}, ErrNotYourTurn
+	}
+	roll, diceEvent := stored.Session.RollDice()
+	events := []game.GameEvent{*diceEvent}
+	moveEvents := stored.Session.MoveCurrentPlayer(roll.Total, roll.Rolls, roll.Total)
+	events = append(events, moveEvents...)
+	stored.Session.State.Log = append(stored.Session.State.Log, events...)
+	if stored.Session.State.Status == "finished" {
+		stored.Status = StatusFinished
+	}
+	if err := persistSession(ctx, tx, stored); err != nil {
+		return Transition{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Transition{}, fmt.Errorf("commit room roll: %w", err)
+	}
+	return Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}, nil
+}
+
+// ResolveAction resolves the current member's server-side pending choice.
+func (s *Service) ResolveAction(ctx context.Context, actor identity.Actor, roomID, actionID string) (Transition, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Transition{}, fmt.Errorf("begin room action: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	stored, err := loadRoom(ctx, tx, roomID, true)
+	if err != nil {
+		return Transition{}, err
+	}
+	member, err := currentMember(actor, stored.Members)
+	if err != nil {
+		return Transition{}, err
+	}
+	if stored.Status != StatusActive || stored.Session == nil || stored.Session.State.Status != "active" {
+		return Transition{}, ErrGameNotActive
+	}
+	if stored.Session.State.PendingAction == nil {
+		return Transition{}, ErrNoPendingAction
+	}
+	if stored.Session.State.PendingAction.PlayerID != member.PlayerID {
+		return Transition{}, ErrNotYourTurn
+	}
+	events, err := stored.Session.ResolvePendingAction(actionID)
+	if err != nil {
+		return Transition{}, fmt.Errorf("resolve room action: %w", err)
+	}
+	stored.Session.State.Log = append(stored.Session.State.Log, events...)
+	if stored.Session.State.Status == "finished" {
+		stored.Status = StatusFinished
+	}
+	if err := persistSession(ctx, tx, stored); err != nil {
+		return Transition{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Transition{}, fmt.Errorf("commit room action: %w", err)
+	}
+	return Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}, nil
+}
+
 func (s *Service) Mute(ctx context.Context, actor identity.Actor, roomID, memberID string, muted bool) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -267,6 +418,81 @@ func (s *Service) Remove(ctx context.Context, actor identity.Actor, roomID, memb
 	return nil
 }
 
+var roomPlayerColors = []string{
+	"#e74c3c", "#3498db", "#2ecc71", "#f39c12",
+	"#9b59b6", "#1abc9c", "#e67e22", "#34495e",
+}
+
+type roomQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func loadRoom(ctx context.Context, queryer roomQuerier, roomID string, lock bool) (*Room, error) {
+	query := `
+		SELECT id::text, game_version_id::text, host_user_id::text, title, max_players, status, sequence, session_json, created_at, updated_at
+		FROM rooms WHERE id = $1`
+	if lock {
+		query += " FOR UPDATE"
+	}
+	var stored Room
+	var raw []byte
+	err := queryer.QueryRow(ctx, query, roomID).
+		Scan(&stored.ID, &stored.GameVersionID, &stored.HostUserID, &stored.Title, &stored.MaxPlayers, &stored.Status, &stored.Sequence, &raw, &stored.CreatedAt, &stored.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get room: %w", err)
+	}
+	if len(raw) > 0 {
+		var session game.GameSession
+		if err := json.Unmarshal(raw, &session); err != nil {
+			return nil, fmt.Errorf("decode room session: %w", err)
+		}
+		stored.Session = &session
+	}
+	members, err := listMembers(ctx, queryer, stored.ID)
+	if err != nil {
+		return nil, err
+	}
+	stored.Members = members
+	for _, member := range members {
+		if member.ActorKind == "user" && member.ActorID == stored.HostUserID {
+			stored.HostMemberID = member.ID
+			break
+		}
+	}
+	return &stored, nil
+}
+
+func persistSession(ctx context.Context, tx pgx.Tx, stored *Room) error {
+	raw, err := json.Marshal(stored.Session)
+	if err != nil {
+		return fmt.Errorf("encode room session: %w", err)
+	}
+	err = tx.QueryRow(ctx, `
+		UPDATE rooms
+		SET status = $2, session_json = $3::jsonb, sequence = sequence + 1, updated_at = now()
+		WHERE id = $1
+		RETURNING sequence, updated_at`, stored.ID, stored.Status, string(raw)).
+		Scan(&stored.Sequence, &stored.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("persist room session: %w", err)
+	}
+	return nil
+}
+
+func currentMember(actor identity.Actor, members []RoomMember) (*RoomMember, error) {
+	ref := actorReference(actor)
+	for i := range members {
+		if members[i].ActorKind == ref.kind && members[i].ActorID == ref.id {
+			return &members[i], nil
+		}
+	}
+	return nil, ErrNotMember
+}
+
 type actorRef struct {
 	kind        string
 	id          string
@@ -299,9 +525,9 @@ func insertMember(ctx context.Context, tx pgx.Tx, roomID string, ref actorRef) (
 	err := tx.QueryRow(ctx, `
 		INSERT INTO room_members (room_id, actor_kind, actor_id, display_name)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id::text, room_id::text, actor_kind, actor_id::text, display_name, muted_at, joined_at`,
+		RETURNING id::text, room_id::text, actor_kind, actor_id::text, COALESCE(player_id, ''), display_name, muted_at, joined_at`,
 		roomID, ref.kind, ref.id, ref.displayName).
-		Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.DisplayName, &member.MutedAt, &member.JoinedAt)
+		Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.PlayerID, &member.DisplayName, &member.MutedAt, &member.JoinedAt)
 	if err != nil {
 		return RoomMember{}, fmt.Errorf("insert room member: %w", err)
 	}
@@ -314,7 +540,7 @@ type memberQuerier interface {
 
 func listMembers(ctx context.Context, queryer memberQuerier, roomID string) ([]RoomMember, error) {
 	rows, err := queryer.Query(ctx, `
-		SELECT id::text, room_id::text, actor_kind, actor_id::text, display_name, muted_at, joined_at
+		SELECT id::text, room_id::text, actor_kind, actor_id::text, COALESCE(player_id, ''), display_name, muted_at, joined_at
 		FROM room_members WHERE room_id = $1 ORDER BY joined_at, id`, roomID)
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
@@ -323,7 +549,7 @@ func listMembers(ctx context.Context, queryer memberQuerier, roomID string) ([]R
 	members := make([]RoomMember, 0)
 	for rows.Next() {
 		var member RoomMember
-		if err := rows.Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.DisplayName, &member.MutedAt, &member.JoinedAt); err != nil {
+		if err := rows.Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.PlayerID, &member.DisplayName, &member.MutedAt, &member.JoinedAt); err != nil {
 			return nil, fmt.Errorf("scan room member: %w", err)
 		}
 		members = append(members, member)

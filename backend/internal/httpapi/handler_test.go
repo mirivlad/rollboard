@@ -13,6 +13,7 @@ import (
 	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
+	"rollboard/internal/realtime"
 	"rollboard/internal/room"
 	"rollboard/internal/storage"
 )
@@ -479,6 +480,25 @@ func TestNonHostCannotMuteRoomMember(t *testing.T) {
 	}
 }
 
+func TestRoomWebSocketRequiresAuthenticatedSession(t *testing.T) {
+	rooms := &fakeRooms{get: &room.Room{ID: "room-id"}}
+	hub, err := realtime.NewHub(rooms)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{}).WithRooms(rooms).WithRealtimeHub(hub)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/rooms/room-id/ws", nil)
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
+	}
+}
+
 func addRoomSessionAndCSRF(request *http.Request) {
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token"})
 	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
@@ -554,6 +574,18 @@ func (f *fakeRooms) Mute(context.Context, identity.Actor, string, string, bool) 
 func (f *fakeRooms) Remove(context.Context, identity.Actor, string, string) error {
 	f.removeCalled = true
 	return f.removeErr
+}
+
+func (f *fakeRooms) Start(context.Context, identity.Actor, string) (*room.Room, error) {
+	return f.get, nil
+}
+
+func (f *fakeRooms) Roll(context.Context, identity.Actor, string) (room.Transition, error) {
+	return room.Transition{}, nil
+}
+
+func (f *fakeRooms) ResolveAction(context.Context, identity.Actor, string, string) (room.Transition, error) {
+	return room.Transition{}, nil
 }
 
 func (f *fakeCatalog) CreateGame(context.Context, string, game.GameDefinition) (catalog.Game, error) {

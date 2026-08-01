@@ -15,6 +15,7 @@ import (
 	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
+	"rollboard/internal/realtime"
 	"rollboard/internal/room"
 	"rollboard/internal/storage"
 )
@@ -31,6 +32,7 @@ type API struct {
 	identity identity.Service
 	catalog  CatalogService
 	rooms    RoomService
+	hub      *realtime.Hub
 	auth     AuthOptions
 }
 
@@ -55,8 +57,9 @@ type guestClaimer interface {
 }
 
 type AuthOptions struct {
-	CookieSecure bool
-	SessionTTL   time.Duration
+	CookieSecure            bool
+	SessionTTL              time.Duration
+	WebSocketOriginPatterns []string
 }
 
 func (a *API) WithIdentity(service identity.Service) *API {
@@ -74,11 +77,17 @@ func (a *API) WithRooms(service RoomService) *API {
 	return a
 }
 
+func (a *API) WithRealtimeHub(hub *realtime.Hub) *API {
+	a.hub = hub
+	return a
+}
+
 func (a *API) WithAuthOptions(options AuthOptions) *API {
 	if options.SessionTTL > 0 {
 		a.auth.SessionTTL = options.SessionTTL
 	}
 	a.auth.CookieSecure = options.CookieSecure
+	a.auth.WebSocketOriginPatterns = append([]string(nil), options.WebSocketOriginPatterns...)
 	return a
 }
 
@@ -483,6 +492,10 @@ func (a *API) handleRoomByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 2 && parts[1] == "join" {
 		a.handleRoomJoin(w, r, roomID)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "ws" {
+		a.handleRoomWebSocket(w, r, roomID)
 		return
 	}
 	if len(parts) == 4 && parts[1] == "members" && parts[3] == "mute" {
