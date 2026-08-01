@@ -11,6 +11,8 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
+
+  docker compose --project-directory "$ROOT_DIR" down --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -22,7 +24,8 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 
-(cd backend && ROLLBOARD_ADDR="$ADDR" ROLLBOARD_DATABASE_URL="$DATABASE_URL" go run ./cmd/server) > /tmp/rollboard-server.log 2>&1 &
+(cd backend && go build -o /tmp/rollboard-server-smoke ./cmd/server)
+ROLLBOARD_ADDR="$ADDR" ROLLBOARD_DATABASE_URL="$DATABASE_URL" /tmp/rollboard-server-smoke > /tmp/rollboard-server.log 2>&1 &
 SERVER_PID=$!
 for attempt in $(seq 1 30); do
   if curl --noproxy '*' --fail --silent "http://$ADDR/readyz" >/dev/null; then break; fi
