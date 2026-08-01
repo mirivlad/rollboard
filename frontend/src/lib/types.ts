@@ -113,6 +113,38 @@ export interface GameSummary {
   updatedAt: string;
 }
 
+export interface PublicUser {
+  id: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
+}
+
+export interface PublicGuest {
+  id: string;
+  displayName: string;
+}
+
+export type Principal =
+  | { kind: 'user'; user: PublicUser }
+  | { kind: 'guest'; guest: PublicGuest };
+
+export interface CatalogGame {
+  id: string;
+  title: string;
+  ownerUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GameVersion {
+  id: string;
+  gameId: string;
+  versionNumber: number;
+  definition: GameDefinition;
+  publishedAt: string;
+}
+
 export interface GameSession {
   id: string;
   gameId: string;

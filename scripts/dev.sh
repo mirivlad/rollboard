@@ -19,14 +19,15 @@ trap cleanup EXIT INT TERM
 cd "$ROOT_DIR"
 docker compose up --detach postgres redis
 if [ ! -d frontend/node_modules ]; then (cd frontend && npm install); fi
-(cd backend && ROLLBOARD_ADDR="${ROLLBOARD_ADDR:-127.0.0.1:8080}" \
-ROLLBOARD_DATABASE_URL="${ROLLBOARD_DATABASE_URL:-postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable}" \
-ROLLBOARD_REDIS_URL="${ROLLBOARD_REDIS_URL:-redis://127.0.0.1:6379/0}" \
-ROLLBOARD_APP_ORIGIN="${ROLLBOARD_APP_ORIGIN:-http://127.0.0.1:5173}" \
-go run ./cmd/server) &
+setsid bash -c "cd '$ROOT_DIR/backend' && \
+ROLLBOARD_ADDR='${ROLLBOARD_ADDR:-127.0.0.1:8080}' \
+ROLLBOARD_DATABASE_URL='${ROLLBOARD_DATABASE_URL:-postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable}' \
+ROLLBOARD_REDIS_URL='${ROLLBOARD_REDIS_URL:-redis://127.0.0.1:6379/0}' \
+ROLLBOARD_APP_ORIGIN='${ROLLBOARD_APP_ORIGIN:-http://127.0.0.1:5173}' \
+exec go run ./cmd/server" &
 BACKEND_PID=$!
 printf '%s\n' "$BACKEND_PID" > /tmp/rollboard-dev-backend.pid
-(cd frontend && npx vite --host 127.0.0.1) &
+setsid bash -c "cd '$ROOT_DIR/frontend' && exec ./node_modules/.bin/vite --host 127.0.0.1" &
 FRONTEND_PID=$!
 printf '%s\n' "$FRONTEND_PID" > /tmp/rollboard-dev-frontend.pid
 wait -n "$BACKEND_PID" "$FRONTEND_PID"
