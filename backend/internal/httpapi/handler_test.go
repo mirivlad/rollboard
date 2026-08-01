@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"rollboard/internal/catalog"
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
@@ -546,6 +548,52 @@ func TestRoomWebSocketRequiresAuthenticatedSession(t *testing.T) {
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
+	}
+}
+
+func TestRoomWebSocketRejectsMissingCommandID(t *testing.T) {
+	user := identity.User{ID: "11111111-1111-1111-1111-111111111111", DisplayName: "Player"}
+	rooms := &fakeRooms{get: &room.Room{
+		ID:       "room-id",
+		Sequence: 1,
+		Members:  []room.RoomMember{{ActorKind: "user", ActorID: user.ID}},
+	}}
+	hub, err := realtime.NewHub(rooms)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	api := New(fakeStore{}).WithIdentity(fakeIdentity{actor: &identity.Actor{User: &user}}).WithRooms(rooms).WithRealtimeHub(hub)
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/rooms/room-id/ws", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Cookie": []string{sessionCookieName + "=session-token"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close(websocket.StatusNormalClosure, "test complete")
+	if _, _, err := connection.Read(ctx); err != nil {
+		t.Fatalf("read initial room state: %v", err)
+	}
+	if err := connection.Write(ctx, websocket.MessageText, []byte(`{"type":"roll"}`)); err != nil {
+		t.Fatalf("write missing command ID: %v", err)
+	}
+	_, payload, err := connection.Read(ctx)
+	if err != nil {
+		t.Fatalf("read room error: %v", err)
+	}
+	var response map[string]string
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("decode room error: %v", err)
+	}
+	if response["type"] != "room_error" || response["code"] != "INVALID_INTENT" {
+		t.Fatalf("response = %#v, want INVALID_INTENT room error", response)
 	}
 }
 

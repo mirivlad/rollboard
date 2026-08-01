@@ -42,6 +42,8 @@ const (
 	StatusLobby    = "lobby"
 	StatusActive   = "active"
 	StatusFinished = "finished"
+
+	maxJournalReplayEvents = 64
 )
 
 type Service struct {
@@ -809,7 +811,8 @@ func (s *Service) EventsSince(ctx context.Context, actor identity.Actor, roomID 
 		SELECT room_id::text, sequence, event_type, payload_json, created_at
 		FROM room_events
 		WHERE room_id = $1 AND sequence > $2 AND sequence <= $3
-		ORDER BY sequence`, roomID, since, stored.Sequence)
+		ORDER BY sequence
+		LIMIT $4`, roomID, since, stored.Sequence, maxJournalReplayEvents+1)
 	if err != nil {
 		return nil, false, fmt.Errorf("list room events: %w", err)
 	}
@@ -825,6 +828,9 @@ func (s *Service) EventsSince(ctx context.Context, actor identity.Actor, roomID 
 			return nil, false, nil
 		}
 		events = append(events, event)
+		if len(events) > maxJournalReplayEvents {
+			return nil, false, nil
+		}
 		expected++
 	}
 	if err := rows.Err(); err != nil {

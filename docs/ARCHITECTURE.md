@@ -103,14 +103,18 @@ intent (`start`, `roll`, `action`, `chat`) rather than a rule result. PostgreSQL
 locks and persists the room snapshot before the hub publishes a monotonic
 sequence. Redis Pub/Sub distributes that accepted snapshot, transition or chat
 event to the local hubs of every application replica. A room references
-`game_versions.id`, never a mutable draft. Redis is not an authority: reconnects
-always load the latest PostgreSQL snapshot.
+`game_versions.id`, never a mutable draft. Redis is not an authority: PostgreSQL
+stores the matching wire envelope and a per-actor client-command UUID receipt in
+the same transaction. Retrying `start`, `roll`, `action` or `chat` returns that
+stored result without re-executing the command. On reconnect, the hub replays up
+to 64 contiguous journal events newer than `since`; any gap or longer range
+safely produces the latest authenticated PostgreSQL snapshot instead.
 
 ## Implementation boundaries
 
-Redis is used only for cross-process fan-out. Presence, command idempotency
-receipts and durable event replay are planned; this document does not claim them
-as implemented.
+Redis is used only for cross-process fan-out. PostgreSQL is the authority for
+room state, event journal and command receipts. Presence and rate limiting are
+not implemented yet.
 
 ### Mini-game extension boundary
 

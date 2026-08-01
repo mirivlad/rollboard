@@ -22,11 +22,14 @@ const (
 	IntentRoll   = "roll"
 	IntentAction = "action"
 	IntentChat   = "chat"
+
+	maxReplayEvents = 64
 )
 
 var (
 	ErrNotMember         = errors.New("room membership is required")
 	ErrUnsupportedIntent = errors.New("unsupported room intention")
+	ErrInvalidCommand    = errors.New("room command ID is invalid")
 )
 
 type RoomService interface {
@@ -37,10 +40,22 @@ type RoomService interface {
 	SendMessage(context.Context, identity.Actor, string, string) (room.RoomMessage, error)
 }
 
+type replayRoomService interface {
+	EventsSince(context.Context, identity.Actor, string, uint64) ([]room.StoredEvent, bool, error)
+}
+
+type commandRoomService interface {
+	StartWithCommand(context.Context, identity.Actor, string, room.Command) (*room.Room, error)
+	RollWithCommand(context.Context, identity.Actor, string, room.Command) (room.Transition, error)
+	ResolveActionWithCommand(context.Context, identity.Actor, string, string, room.Command) (room.Transition, error)
+	SendMessageWithCommand(context.Context, identity.Actor, string, string, room.Command) (room.RoomMessage, error)
+}
+
 type Intent struct {
-	Type     string `json:"type"`
-	ActionID string `json:"actionId,omitempty"`
-	Body     string `json:"body,omitempty"`
+	Type      string `json:"type"`
+	CommandID string `json:"commandId,omitempty"`
+	ActionID  string `json:"actionId,omitempty"`
+	Body      string `json:"body,omitempty"`
 }
 
 type Envelope struct {
@@ -160,7 +175,11 @@ func (h *Hub) Close() {
 
 // Connect validates membership and sends a current sequenced snapshot before
 // subscribing the client to later transitions.
-func (h *Hub) Connect(ctx context.Context, roomID string, actor identity.Actor, _ uint64) (*Client, error) {
+func (h *Hub) Connect(ctx context.Context, roomID string, actor identity.Actor, since uint64) (*Client, error) {
+	return h.connect(ctx, roomID, actor, since)
+}
+
+func (h *Hub) connect(ctx context.Context, roomID string, actor identity.Actor, since uint64) (*Client, error) {
 	clients := h.clientsFor(roomID)
 	clients.mu.Lock()
 	defer clients.mu.Unlock()
@@ -171,12 +190,31 @@ func (h *Hub) Connect(ctx context.Context, roomID string, actor identity.Actor, 
 	if !isMember(actor, stored.Members) {
 		return nil, ErrNotMember
 	}
-	payload, err := json.Marshal(stored)
-	if err != nil {
-		return nil, fmt.Errorf("encode room snapshot: %w", err)
+	initial := make([]Envelope, 0, 1)
+	if since < stored.Sequence {
+		if replay, ok := h.service.(replayRoomService); ok {
+			events, contiguous, err := replay.EventsSince(ctx, actor, roomID, since)
+			if err != nil {
+				return nil, fmt.Errorf("load room reconnect events: %w", err)
+			}
+			if contiguous && len(events) > 0 && len(events) <= maxReplayEvents {
+				for _, event := range events {
+					initial = append(initial, Envelope{Type: event.Type, Sequence: event.Sequence, Payload: event.Payload})
+				}
+			}
+		}
 	}
-	c := &client{events: make(chan Envelope, 32), actor: actor}
-	c.events <- Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload}
+	if len(initial) == 0 {
+		payload, err := json.Marshal(stored)
+		if err != nil {
+			return nil, fmt.Errorf("encode room snapshot: %w", err)
+		}
+		initial = append(initial, Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload})
+	}
+	c := &client{events: make(chan Envelope, max(32, len(initial)+1)), actor: actor}
+	for _, event := range initial {
+		c.events <- event
+	}
 	clients.clients[c] = struct{}{}
 	return &Client{Events: c.events, hub: h, roomID: roomID, room: clients, self: c}, nil
 }
@@ -187,12 +225,19 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 	clients := h.clientsFor(roomID)
 	clients.submitMu.Lock()
 	defer clients.submitMu.Unlock()
+	command, err := commandForIntent(intent)
+	if err != nil {
+		return room.Transition{}, err
+	}
+	commands, ok := h.service.(commandRoomService)
+	if !ok {
+		return room.Transition{}, fmt.Errorf("realtime room service does not support command receipts")
+	}
 
 	var transition room.Transition
-	var err error
 	switch intent.Type {
 	case IntentStart:
-		started, startErr := h.service.Start(ctx, actor, roomID)
+		started, startErr := commands.StartWithCommand(ctx, actor, roomID, command)
 		if startErr != nil {
 			return room.Transition{}, startErr
 		}
@@ -201,17 +246,21 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 		if marshalErr != nil {
 			return room.Transition{}, fmt.Errorf("encode started room snapshot: %w", marshalErr)
 		}
+		if started.Duplicate {
+			h.deliverStoredEvent(roomID, started.StoredEvent)
+			return transition, nil
+		}
 		h.publish(ctx, BackplaneEvent{RoomID: roomID, Envelope: Envelope{Type: EventRoomState, Sequence: started.Sequence, Payload: payload}})
 		return transition, nil
 	case IntentRoll:
-		transition, err = h.service.Roll(ctx, actor, roomID)
+		transition, err = commands.RollWithCommand(ctx, actor, roomID, command)
 	case IntentAction:
 		if intent.ActionID == "" {
 			return room.Transition{}, fmt.Errorf("%w: action ID is required", ErrUnsupportedIntent)
 		}
-		transition, err = h.service.ResolveAction(ctx, actor, roomID, intent.ActionID)
+		transition, err = commands.ResolveActionWithCommand(ctx, actor, roomID, intent.ActionID, command)
 	case IntentChat:
-		message, messageErr := h.service.SendMessage(ctx, actor, roomID, intent.Body)
+		message, messageErr := commands.SendMessageWithCommand(ctx, actor, roomID, intent.Body, command)
 		if messageErr != nil {
 			return room.Transition{}, messageErr
 		}
@@ -219,13 +268,19 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 		if err != nil {
 			return room.Transition{}, fmt.Errorf("encode chat message: %w", err)
 		}
+		if message.Duplicate {
+			h.deliverStoredEvent(roomID, message.StoredEvent)
+			return room.Transition{RoomID: roomID, Sequence: message.Sequence}, nil
+		}
 		h.publish(ctx, BackplaneEvent{RoomID: roomID, Envelope: Envelope{Type: EventChatMessage, Sequence: message.Sequence, Payload: payload}})
 		return room.Transition{RoomID: roomID, Sequence: message.Sequence}, nil
-	default:
-		return room.Transition{}, fmt.Errorf("%w: %s", ErrUnsupportedIntent, intent.Type)
 	}
 	if err != nil {
 		return room.Transition{}, err
+	}
+	if transition.Duplicate {
+		h.deliverStoredEvent(roomID, transition.StoredEvent)
+		return transition, nil
 	}
 	payload, err := json.Marshal(transition)
 	if err != nil {
@@ -233,6 +288,43 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 	}
 	h.publish(ctx, BackplaneEvent{RoomID: roomID, Envelope: Envelope{Type: EventRoomEvent, Sequence: transition.Sequence, Payload: payload}})
 	return transition, nil
+}
+
+func (h *Hub) deliverStoredEvent(roomID string, event *room.StoredEvent) {
+	if event == nil {
+		return
+	}
+	h.receiveBackplaneEvent(BackplaneEvent{RoomID: roomID, Envelope: Envelope{Type: event.Type, Sequence: event.Sequence, Payload: event.Payload}})
+}
+
+func commandForIntent(intent Intent) (room.Command, error) {
+	switch intent.Type {
+	case IntentStart, IntentRoll, IntentAction, IntentChat:
+		if !isUUID(intent.CommandID) {
+			return room.Command{}, fmt.Errorf("%w: %s requires a UUID commandId", ErrInvalidCommand, intent.Type)
+		}
+		return room.Command{ID: intent.CommandID, Type: intent.Type}, nil
+	default:
+		return room.Command{}, fmt.Errorf("%w: %s", ErrUnsupportedIntent, intent.Type)
+	}
+}
+
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, char := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Refresh broadcasts the latest durable room snapshot after a membership or

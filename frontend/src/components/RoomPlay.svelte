@@ -3,6 +3,7 @@
   import type { Room, RoomMessage } from '../lib/types';
   import { api } from '../lib/api';
   import { confirmedRollPlayback, type RollPlayback } from '../lib/room-events';
+  import { roomCommand } from '../lib/room-command';
   import { acceptsRoomSequence } from '../lib/room-sequence';
   import BoardView from './BoardView.svelte';
 
@@ -91,13 +92,13 @@
     socket.send(JSON.stringify(value));
     return true;
   }
-  function rollDice() { error = ''; rolling = send({ type: 'roll' }); }
+  function rollDice() { error = ''; rolling = send(roomCommand('roll')); }
   function acceptsIncomingRoom(envelope: { sequence?: unknown }) {
     if (!acceptsRoomSequence(latestRoomSequence, envelope.sequence)) return false;
     latestRoomSequence = envelope.sequence;
     return true;
   }
-  function submitMessage() { const body = message.trim(); if (!body) return; send({ type: 'chat', body }); message = ''; }
+  function submitMessage() { const body = message.trim(); if (!body) return; send(roomCommand('chat', { body })); message = ''; }
   async function refreshRoom() { currentRoom = await api.getRoom(currentRoom.id); onRoom(currentRoom); }
   async function muteMember(memberID: string, muted: boolean) { error = ''; try { await api.muteRoomMember(currentRoom.id, memberID, muted); await refreshRoom(); } catch (cause) { error = cause instanceof Error ? `Moderation failed: ${cause.message}` : 'Moderation failed.'; } }
   async function removeMember(memberID: string) { error = ''; try { await api.removeRoomMember(currentRoom.id, memberID); await refreshRoom(); } catch (cause) { error = cause instanceof Error ? `Moderation failed: ${cause.message}` : 'Moderation failed.'; } }
@@ -127,10 +128,10 @@
 </script>
 
 <section class="room-play">
-  <div class="top"><div><p class="eyebrow">{connected ? 'LIVE ROOM' : 'RECONNECTING'}</p><h1>{currentRoom.title}</h1><p>{currentRoom.members.length}/{currentRoom.maxPlayers} players · {currentRoom.status}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send({ type: 'start' })}>Start game</button>{/if}</div>
+  <div class="top"><div><p class="eyebrow">{connected ? 'LIVE ROOM' : 'RECONNECTING'}</p><h1>{currentRoom.title}</h1><p>{currentRoom.members.length}/{currentRoom.maxPlayers} players · {currentRoom.status}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send(roomCommand('start'))}>Start game</button>{/if}</div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <div class="layout">
-    <div class="game"><h2>{currentRoom.session ? `Turn ${currentRoom.session.state.turnNumber}` : 'Waiting in lobby'}</h2>{#if currentRoom.session}<p>Current player: {currentPlayer?.name}</p>{#if rolling}<p class="dice-result" aria-live="polite">Rolling dice…</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">Rolled: {lastRoll.rolls.join(' + ')} = {lastRoll.total}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{pendingAction.title || 'Choose an action'}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send({ type: 'action', actionId: option.id })}>{option.title}</button>{/each}{:else}<p>Waiting for the current player to choose.</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>Roll dice</button>{:else}<p>Waiting for the current player to roll.</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{/if}</div>
+    <div class="game"><h2>{currentRoom.session ? `Turn ${currentRoom.session.state.turnNumber}` : 'Waiting in lobby'}</h2>{#if currentRoom.session}<p>Current player: {currentPlayer?.name}</p>{#if rolling}<p class="dice-result" aria-live="polite">Rolling dice…</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">Rolled: {lastRoll.rolls.join(' + ')} = {lastRoll.total}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{pendingAction.title || 'Choose an action'}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send(roomCommand('action', { actionId: option.id }))}>{option.title}</button>{/each}{:else}<p>Waiting for the current player to choose.</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>Roll dice</button>{:else}<p>Waiting for the current player to roll.</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{/if}</div>
     <aside><section class="roster"><h2>Players</h2>{#each currentRoom.members as member (member.id)}<div class="member"><span>{member.displayName}{member.mutedAt ? ' · muted' : ''}</span>{#if canModerate && member.id !== currentRoom.hostMemberId}<div class="member-actions"><button aria-label={`${member.mutedAt ? 'Unmute' : 'Mute'} ${member.displayName}`} onclick={() => muteMember(member.id, !member.mutedAt)}>{member.mutedAt ? 'Unmute' : 'Mute'}</button><button aria-label={`Remove ${member.displayName}`} onclick={() => removeMember(member.id)}>Remove</button></div>{/if}</div>{/each}</section><section class="chat"><h2>Room chat</h2><div class="messages">{#each messages as item (item.id)}<p><strong>{item.displayName}</strong><span>{item.body}</span></p>{/each}</div><form onsubmit={(event) => { event.preventDefault(); submitMessage(); }}><label>Message<input bind:value={message} maxlength="1000" placeholder="Say hello" /></label><button disabled={!message.trim()}>Send</button></form></section></aside>
   </div>
 </section>

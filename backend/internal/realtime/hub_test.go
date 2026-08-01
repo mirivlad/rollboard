@@ -51,7 +51,7 @@ func TestHubBroadcastsOneOrderedTransitionAndRejectsOutOfTurnRoll(t *testing.T) 
 		t.Fatalf("guest initial event = %#v, want room state sequence 4", state)
 	}
 
-	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll}); err != nil {
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll, CommandID: "00000000-0000-4000-8000-000000000001"}); err != nil {
 		t.Fatal(err)
 	}
 	hostEvent := receiveEnvelope(t, hostClient)
@@ -59,7 +59,7 @@ func TestHubBroadcastsOneOrderedTransitionAndRejectsOutOfTurnRoll(t *testing.T) 
 	if hostEvent.Type != EventRoomEvent || hostEvent.Sequence != 5 || !reflect.DeepEqual(hostEvent, guestEvent) {
 		t.Fatalf("broadcasts = %#v and %#v, want equal ordered room event", hostEvent, guestEvent)
 	}
-	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{Guest: &guest}, Intent{Type: IntentRoll}); !errors.Is(err, room.ErrNotYourTurn) {
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{Guest: &guest}, Intent{Type: IntentRoll, CommandID: "00000000-0000-4000-8000-000000000002"}); !errors.Is(err, room.ErrNotYourTurn) {
 		t.Fatalf("out-of-turn Submit() error = %v, want ErrNotYourTurn", err)
 	}
 	if service.rollCalls != 2 {
@@ -67,6 +67,20 @@ func TestHubBroadcastsOneOrderedTransitionAndRejectsOutOfTurnRoll(t *testing.T) 
 	}
 	assertNoEnvelope(t, hostClient)
 	assertNoEnvelope(t, guestClient)
+}
+
+func TestHubRejectsMutatingIntentWithoutCommandID(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	service := &fakeRoomService{room: &room.Room{ID: "room-id", Status: room.StatusActive, Members: []room.RoomMember{{ActorKind: "user", ActorID: host.ID}}}}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll}); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("Submit() error = %v, want ErrInvalidCommand", err)
+	}
 }
 
 func TestHubsBroadcastTransitionsAcrossReplicas(t *testing.T) {
@@ -102,7 +116,7 @@ func TestHubsBroadcastTransitionsAcrossReplicas(t *testing.T) {
 	receiveEnvelope(t, hostClient)
 	receiveEnvelope(t, guestClient)
 
-	if _, err := primary.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll}); err != nil {
+	if _, err := primary.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll, CommandID: "00000000-0000-4000-8000-000000000003"}); err != nil {
 		t.Fatal(err)
 	}
 	hostEvent := receiveEnvelope(t, hostClient)
@@ -112,6 +126,33 @@ func TestHubsBroadcastTransitionsAcrossReplicas(t *testing.T) {
 	}
 	assertNoEnvelope(t, hostClient)
 	assertNoEnvelope(t, guestClient)
+}
+
+func TestHubReconnectsWithContiguousJournalEvents(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	service := &fakeRoomService{
+		room: &room.Room{ID: "room-id", Sequence: 7, Members: []room.RoomMember{{ActorKind: "user", ActorID: host.ID}}},
+		replayEvents: []room.StoredEvent{
+			{RoomID: "room-id", Sequence: 6, Type: EventRoomEvent, Payload: json.RawMessage(`{"roomId":"room-id","sequence":6}`)},
+			{RoomID: "room-id", Sequence: 7, Type: EventRoomEvent, Payload: json.RawMessage(`{"roomId":"room-id","sequence":7}`)},
+		},
+		replayContiguous: true,
+	}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	client, err := hub.Connect(context.Background(), "room-id", identity.Actor{User: &host}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	first := receiveEnvelope(t, client)
+	second := receiveEnvelope(t, client)
+	if first.Type != EventRoomEvent || first.Sequence != 6 || second.Type != EventRoomEvent || second.Sequence != 7 {
+		t.Fatalf("reconnect events = %#v, %#v; want sequences 6 then 7", first, second)
+	}
 }
 
 func TestHubsBroadcastTransitionsThroughRedis(t *testing.T) {
@@ -160,7 +201,7 @@ func TestHubsBroadcastTransitionsThroughRedis(t *testing.T) {
 	receiveEnvelope(t, hostClient)
 	receiveEnvelope(t, guestClient)
 
-	if _, err := primary.Submit(context.Background(), stored.ID, identity.Actor{User: &host}, Intent{Type: IntentRoll}); err != nil {
+	if _, err := primary.Submit(context.Background(), stored.ID, identity.Actor{User: &host}, Intent{Type: IntentRoll, CommandID: "00000000-0000-4000-8000-000000000004"}); err != nil {
 		t.Fatal(err)
 	}
 	hostEvent := receiveEnvelope(t, hostClient)
@@ -208,7 +249,7 @@ func TestHubBroadcastsPersistedChatMessage(t *testing.T) {
 	receiveEnvelope(t, hostClient)
 	receiveEnvelope(t, guestClient)
 
-	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{Guest: &guest}, Intent{Type: IntentChat, Body: "Hello"}); err != nil {
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{Guest: &guest}, Intent{Type: IntentChat, CommandID: "00000000-0000-4000-8000-000000000005", Body: "Hello"}); err != nil {
 		t.Fatal(err)
 	}
 	if event := receiveEnvelope(t, hostClient); event.Type != EventChatMessage || event.Sequence != 9 {
@@ -306,7 +347,7 @@ func TestHubStartBroadcastsRoomStateWithAssignedPlayers(t *testing.T) {
 	defer client.Close()
 	receiveEnvelope(t, client)
 
-	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentStart}); err != nil {
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentStart, CommandID: "00000000-0000-4000-8000-000000000006"}); err != nil {
 		t.Fatal(err)
 	}
 	event := receiveEnvelope(t, client)
@@ -355,11 +396,13 @@ func assertClientClosed(t *testing.T, client *Client) {
 }
 
 type fakeRoomService struct {
-	room       *room.Room
-	startRoom  *room.Room
-	transition room.Transition
-	rollCalls  int
-	chat       room.RoomMessage
+	room             *room.Room
+	startRoom        *room.Room
+	transition       room.Transition
+	rollCalls        int
+	chat             room.RoomMessage
+	replayEvents     []room.StoredEvent
+	replayContiguous bool
 }
 
 type memoryBackplane struct {
@@ -404,11 +447,19 @@ func (b *memoryBackplane) Close() error { return nil }
 
 func (f *fakeRoomService) Get(context.Context, string) (*room.Room, error) { return f.room, nil }
 
+func (f *fakeRoomService) EventsSince(context.Context, identity.Actor, string, uint64) ([]room.StoredEvent, bool, error) {
+	return f.replayEvents, f.replayContiguous, nil
+}
+
 func (f *fakeRoomService) Start(context.Context, identity.Actor, string) (*room.Room, error) {
 	if f.startRoom != nil {
 		f.room = f.startRoom
 	}
 	return f.room, nil
+}
+
+func (f *fakeRoomService) StartWithCommand(ctx context.Context, actor identity.Actor, roomID string, _ room.Command) (*room.Room, error) {
+	return f.Start(ctx, actor, roomID)
 }
 
 func (f *fakeRoomService) Roll(_ context.Context, actor identity.Actor, _ string) (room.Transition, error) {
@@ -419,10 +470,22 @@ func (f *fakeRoomService) Roll(_ context.Context, actor identity.Actor, _ string
 	return f.transition, nil
 }
 
+func (f *fakeRoomService) RollWithCommand(ctx context.Context, actor identity.Actor, roomID string, _ room.Command) (room.Transition, error) {
+	return f.Roll(ctx, actor, roomID)
+}
+
 func (f *fakeRoomService) ResolveAction(context.Context, identity.Actor, string, string) (room.Transition, error) {
 	return f.transition, nil
 }
 
+func (f *fakeRoomService) ResolveActionWithCommand(ctx context.Context, actor identity.Actor, roomID, actionID string, _ room.Command) (room.Transition, error) {
+	return f.ResolveAction(ctx, actor, roomID, actionID)
+}
+
 func (f *fakeRoomService) SendMessage(context.Context, identity.Actor, string, string) (room.RoomMessage, error) {
 	return f.chat, nil
+}
+
+func (f *fakeRoomService) SendMessageWithCommand(ctx context.Context, actor identity.Actor, roomID, body string, _ room.Command) (room.RoomMessage, error) {
+	return f.SendMessage(ctx, actor, roomID, body)
 }

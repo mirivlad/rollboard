@@ -144,6 +144,8 @@ func realtimeErrorCode(err error) string {
 		return "MEMBER_MUTED"
 	case errors.Is(err, realtime.ErrUnsupportedIntent):
 		return "INVALID_INTENT"
+	case errors.Is(err, realtime.ErrInvalidCommand), errors.Is(err, room.ErrInvalidCommand):
+		return "INVALID_INTENT"
 	default:
 		return "ROOM_ACTION_REJECTED"
 	}

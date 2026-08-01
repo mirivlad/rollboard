@@ -196,7 +196,7 @@ Actions can:
 ## Current limitations
 
 - The author dashboard reloads private drafts and owned published versions. Public catalog discovery/search and shareable invite links are still planned.
-- Redis Pub/Sub fans accepted room snapshots, transitions and chat events out to every app replica. Presence, command idempotency and durable event replay are not implemented yet; reconnects load the current PostgreSQL snapshot.
+- Redis Pub/Sub fans accepted room snapshots, transitions and chat events out to every app replica. Each `start`, `roll`, `action` and `chat` intent carries a client UUID: PostgreSQL returns the stored result for retries instead of applying it twice. Reconnects replay at most 64 contiguous persisted events; a missing, pruned or longer range safely falls back to the current PostgreSQL snapshot. Presence and rate limiting are still planned.
 - Browser verification covers two simultaneous clients creating/joining a room, live roster updates, starting, rolling, resolving a purchase choice and room chat; wider responsive-device coverage is still required before release.
 - No bot players — all players must be human.
 - No image file uploads — image URLs only

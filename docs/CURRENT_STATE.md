@@ -12,6 +12,7 @@ Last updated: 2026-08-02
 - Host-created rooms, guest/account joins, visible host mute/kick controls, durable room-only chat.
 - Authoritative server start/roll/choice commands; out-of-turn commands are rejected.
 - Sequenced WebSocket hub with authenticated upgrade, origin checking, Redis cross-replica fan-out and disconnect on room removal.
+- Durable PostgreSQL room-event journal and per-actor UUID command receipts for start, roll, action and chat. Reconnects replay up to 64 contiguous events, otherwise safely receive the current snapshot.
 - Svelte author dashboard with template picker, guided basics or direct advanced editor, lobby, room view, WebSocket live state and chat UI. Online rolls display the server-provided dice result and animate only the server-provided path.
 
 ## Verification completed on 2026-08-02
@@ -30,11 +31,11 @@ authoritative start/roll and out-of-turn rejection.
 
 ## Browser verification completed on 2026-08-02
 
-- Two Chromium/Playwright contexts verified account publication → room creation → guest join → live roster refresh → authenticated WebSocket upgrades → host start → server-authoritative roll with visible dice result → generic purchase choice resolution → chat broadcast → host mute enforcement. Screenshot: `/tmp/rollboard-multiplayer.png` (test artifact, not committed).
+- Two Chromium/Playwright contexts verified account publication → room creation → guest join → live roster refresh → authenticated WebSocket upgrades → host start → server-authoritative roll with visible dice result → generic purchase choice resolution → chat broadcast → host mute enforcement. A reconnecting authenticated browser WebSocket with `since=2` received the persisted roll event at sequence `3`. Screenshot: `/tmp/rollboard-multiplayer.png` (test artifact, not committed).
 
 ## Release blockers / next work
 
-- Presence, command idempotency, rate limiting and durable reconnect event replay are not implemented; reconnects currently load a fresh PostgreSQL snapshot.
+- Presence and rate limiting are not implemented. Journal retention/pruning and load testing still need explicit production policy before a large public launch.
 - Public room discovery and invite links are not implemented.
 - A portable automated Playwright runner is not implemented; `scripts/browser-smoke.sh` intentionally directs developers to the manual checklist.
 - The existing hotseat BoardView still needs responsive visual QA across target sizes.
