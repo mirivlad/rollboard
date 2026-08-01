@@ -192,7 +192,7 @@ Actions can:
 
 - The room browser currently exposes the version published in the active author session; a full catalog/search and shareable invite links are still planned.
 - The realtime hub is single-process. Redis is provisioned by Docker/Portainer, but cross-replica fan-out, presence and command idempotency are not implemented yet.
-- A room can be started and played online, but browser end-to-end verification of two simultaneous clients is still required before release.
+- Browser verification currently covers two simultaneous clients creating/joining a room, starting, rolling and exchanging room chat; wider responsive-device coverage is still required before release.
 - No bot players — all players must be human (hotseat)
 - No image file uploads — image URLs only
 - Edge conditions are basic — only `always` type implemented
