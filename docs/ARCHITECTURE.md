@@ -4,7 +4,7 @@
 
 Rollboard is a generic engine for route-based board games.
 
-- **Backend**: Go HTTP server with SQLite persistence
+- **Backend**: Go HTTP server with PostgreSQL persistence
 - **Frontend**: Svelte 5 + TypeScript + Vite
 - **Communication**: REST JSON API over HTTP
 
@@ -26,8 +26,8 @@ backend/
     │   └── validation_test.go  — tests for validation logic
     ├── httpapi/
     │   └── handler.go          — REST handlers: /api/health, /api/games, /api/sessions
-    └── storage/sqlite/
-        └── store.go            — SQLite CRUD for games and sessions
+    └── storage/postgres/
+        └── store.go            — PostgreSQL CRUD for games and sessions
 ```
 
 ### Engine Model

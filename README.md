@@ -1,7 +1,7 @@
 # Rollboard — Roll-and-Move Board Game Engine
 
 A browser-based engine for creating and playtesting roll-and-move board games.
-Backend in Go, frontend in Svelte + Vite + TypeScript, storage in SQLite.
+Backend in Go, frontend in Svelte + Vite + TypeScript, storage in PostgreSQL.
 
 Game logic is defined entirely through data (ActionDefinition lists), not hardcoded in the runtime.
 This makes the engine generic — adding a new game type requires only a JSON definition, not backend code changes.
@@ -19,7 +19,7 @@ This makes the engine generic — adding a new game type requires only a JSON de
   - **Dungeon Race**: health, gold, keys, traps, treasure, heal, finish line
   - **Branching Demo**: dice-based even/odd branching routes
   - **Manual Branch Demo**: player-chosen paths with resource costs
-- Game persistence via SQLite
+- Game persistence via PostgreSQL
 - Validation of game definitions
 - Event log for all game actions
 - Player elimination (bankruptcy)
@@ -32,7 +32,7 @@ This makes the engine generic — adding a new game type requires only a JSON de
 - **Go** 1.22+ ([download](https://go.dev/dl/))
 - **Node.js** 20+ ([download](https://nodejs.org/))
 - **npm** (ships with Node.js)
-- SQLite — no separate install needed. The driver (`github.com/mattn/go-sqlite3`) requires CGo and a working C compiler (gcc or mingw).
+- Docker Compose plugin for local PostgreSQL and Redis services.
 
 ## Quick Start
 
@@ -44,7 +44,7 @@ cd rollboard
 # Install frontend dependencies
 cd frontend && npm install && cd ..
 
-# Start both backend and frontend
+# Start local PostgreSQL/Redis plus backend and frontend
 ./scripts/dev.sh
 ```
 
@@ -65,7 +65,7 @@ Open http://localhost:5173 in a browser.
 | `make frontend`| Start frontend dev server only     |
 | `make test`    | Run backend tests                  |
 | `make check`   | Run backend tests + frontend build |
-| `make smoke`   | Run smoke tests (start backend, hit API, stop) |
+| `make smoke`   | Run PostgreSQL-backed smoke tests |
 | `make clean`   | Remove build artifacts and data    |
 | `make build`   | Build production binaries          |
 
@@ -74,13 +74,15 @@ Open http://localhost:5173 in a browser.
 | Variable            | Default                  | Description            |
 |---------------------|--------------------------|------------------------|
 | `ROLLBOARD_ADDR`    | `127.0.0.1:8080`         | Backend listen address |
-| `ROLLBOARD_DB_PATH` | `./data/rollboard.db`    | SQLite database path   |
+| `ROLLBOARD_DATABASE_URL` | `postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable` | PostgreSQL connection URL |
+| `ROLLBOARD_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection URL |
 
 Set these in a `.env` file (not committed) or export them in your shell:
 
 ```env
 ROLLBOARD_ADDR=127.0.0.1:8080
-ROLLBOARD_DB_PATH=./data/rollboard.db
+ROLLBOARD_DATABASE_URL=postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable
+ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
 ```
 
 ## How to Use
