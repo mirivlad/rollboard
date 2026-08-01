@@ -80,6 +80,7 @@ Open http://localhost:5173 in a browser.
 |---------------------|--------------------------|------------------------|
 | `ROLLBOARD_ADDR`    | `127.0.0.1:8080`         | Backend listen address |
 | `ROLLBOARD_DATABASE_URL` | `postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable` | PostgreSQL connection URL |
+| `ROLLBOARD_DATABASE_MAX_CONNS` | `20` | Maximum PostgreSQL connections per application replica |
 | `ROLLBOARD_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection URL |
 
 Set these in a `.env` file (not committed) or export them in your shell:
@@ -87,6 +88,7 @@ Set these in a `.env` file (not committed) or export them in your shell:
 ```env
 ROLLBOARD_ADDR=127.0.0.1:8080
 ROLLBOARD_DATABASE_URL=postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable
+ROLLBOARD_DATABASE_MAX_CONNS=20
 ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
 ```
 

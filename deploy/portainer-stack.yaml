@@ -25,6 +25,7 @@ services:
     image: ${ROLLBOARD_IMAGE:-ghcr.io/rollboard/rollboard:latest}
     environment:
       ROLLBOARD_DATABASE_URL: postgres://${POSTGRES_USER:-rollboard}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rollboard}?sslmode=disable
+      ROLLBOARD_DATABASE_MAX_CONNS: ${ROLLBOARD_DATABASE_MAX_CONNS:-20}
       ROLLBOARD_REDIS_URL: redis://redis:6379/0
       ROLLBOARD_APP_ORIGIN: ${ROLLBOARD_APP_ORIGIN:?Set_ROLLBOARD_APP_ORIGIN}
       ROLLBOARD_COOKIE_SECURE: "true"

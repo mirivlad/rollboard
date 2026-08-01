@@ -33,7 +33,7 @@ func main() {
 	addr := flag.String("addr", cfg.Addr, "server address")
 	flag.Parse()
 
-	store, err := postgres.New(context.Background(), cfg.DatabaseURL)
+	store, err := postgres.New(context.Background(), cfg.DatabaseURL, cfg.DatabaseMaxConns)
 	if err != nil {
 		log.Fatalf("failed to open storage: %v", err)
 	}

@@ -11,6 +11,7 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	t.Setenv("ROLLBOARD_REDIS_URL", "")
 	t.Setenv("ROLLBOARD_COOKIE_SECURE", "")
 	t.Setenv("ROLLBOARD_SESSION_TTL", "")
+	t.Setenv("ROLLBOARD_DATABASE_MAX_CONNS", "")
 	t.Setenv("ROLLBOARD_APP_ORIGIN", "")
 
 	cfg, err := Load()
@@ -31,6 +32,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 	if cfg.SessionTTL != 30*24*time.Hour {
 		t.Errorf("SessionTTL = %s, want 720h", cfg.SessionTTL)
+	}
+	if cfg.DatabaseMaxConns != 20 {
+		t.Errorf("DatabaseMaxConns = %d, want 20", cfg.DatabaseMaxConns)
 	}
 }
 
@@ -73,5 +77,14 @@ func TestLoadReadsStaticDir(t *testing.T) {
 	}
 	if cfg.StaticDir != "/srv/rollboard/frontend" {
 		t.Errorf("StaticDir = %q, want configured directory", cfg.StaticDir)
+	}
+}
+
+func TestLoadRejectsInvalidDatabasePoolSize(t *testing.T) {
+	t.Setenv("ROLLBOARD_DATABASE_MAX_CONNS", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want invalid ROLLBOARD_DATABASE_MAX_CONNS error")
 	}
 }

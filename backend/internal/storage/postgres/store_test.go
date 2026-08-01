@@ -68,7 +68,7 @@ func newTestStore(t *testing.T) *Store {
 	if dsn == "" {
 		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
 	}
-	store, err := New(context.Background(), dsn)
+	store, err := New(context.Background(), dsn, 20)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

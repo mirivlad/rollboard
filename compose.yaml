@@ -31,6 +31,7 @@ services:
       context: .
     environment:
       ROLLBOARD_DATABASE_URL: postgres://rollboard:rollboard@postgres:5432/rollboard?sslmode=disable
+      ROLLBOARD_DATABASE_MAX_CONNS: ${ROLLBOARD_DATABASE_MAX_CONNS:-20}
       ROLLBOARD_REDIS_URL: redis://redis:6379/0
       ROLLBOARD_APP_ORIGIN: http://localhost:8080
       ROLLBOARD_COOKIE_SECURE: "false"

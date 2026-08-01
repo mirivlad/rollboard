@@ -15,16 +15,18 @@ const (
 	defaultRedisURL    = "redis://127.0.0.1:6379/0"
 	defaultAppOrigin   = "http://127.0.0.1:5173"
 	defaultSessionTTL  = 30 * 24 * time.Hour
+	defaultDBMaxConns  = int32(20)
 )
 
 type Config struct {
-	Addr         string
-	DatabaseURL  string
-	RedisURL     string
-	CookieSecure bool
-	SessionTTL   time.Duration
-	AppOrigin    string
-	StaticDir    string
+	Addr             string
+	DatabaseURL      string
+	DatabaseMaxConns int32
+	RedisURL         string
+	CookieSecure     bool
+	SessionTTL       time.Duration
+	AppOrigin        string
+	StaticDir        string
 }
 
 func Load() (Config, error) {
@@ -36,15 +38,20 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	databaseMaxConns, err := envPositiveInt32("ROLLBOARD_DATABASE_MAX_CONNS", defaultDBMaxConns)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
-		Addr:         env("ROLLBOARD_ADDR", defaultAddr),
-		DatabaseURL:  env("ROLLBOARD_DATABASE_URL", defaultDatabaseURL),
-		RedisURL:     env("ROLLBOARD_REDIS_URL", defaultRedisURL),
-		CookieSecure: secure,
-		SessionTTL:   sessionTTL,
-		AppOrigin:    env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
-		StaticDir:    strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
+		Addr:             env("ROLLBOARD_ADDR", defaultAddr),
+		DatabaseURL:      env("ROLLBOARD_DATABASE_URL", defaultDatabaseURL),
+		DatabaseMaxConns: databaseMaxConns,
+		RedisURL:         env("ROLLBOARD_REDIS_URL", defaultRedisURL),
+		CookieSecure:     secure,
+		SessionTTL:       sessionTTL,
+		AppOrigin:        env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
+		StaticDir:        strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -94,6 +101,18 @@ func envDuration(name string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a positive Go duration", name)
 	}
 	return parsed, nil
+}
+
+func envPositiveInt32(name string, fallback int32) (int32, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return int32(parsed), nil
 }
 
 func validateURL(name, rawURL string, schemes ...string) error {
