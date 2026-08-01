@@ -6,6 +6,7 @@ ADDR="${ROLLBOARD_SMOKE_ADDR:-127.0.0.1:18091}"
 DATABASE_URL="postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable"
 SERVER_PID=""
 COOKIE_JAR="$(mktemp)"
+GUEST_COOKIE_JAR="$(mktemp)"
 
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
@@ -14,6 +15,7 @@ cleanup() {
   fi
 
   rm -f "$COOKIE_JAR"
+  rm -f "$GUEST_COOKIE_JAR"
 
   docker compose --project-directory "$ROOT_DIR" down --remove-orphans >/dev/null 2>&1 || true
 }
@@ -52,3 +54,16 @@ loaded_game="$(curl --noproxy '*' --fail --silent --show-error "http://$ADDR/api
 [[ "$loaded_game" == *"\"id\":\"$game_id\""* ]]
 validation="$(curl --noproxy '*' --fail --silent --show-error --request POST "http://$ADDR/api/games/$game_id/validate")"
 [[ "$validation" == *'"valid":true'* ]]
+published="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST "http://$ADDR/api/games/$game_id/publish")"
+version_id="$(printf '%s' "$published" | jq -r '.id')"
+[[ -n "$version_id" ]]
+created_room="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST --header 'Content-Type: application/json' --data "{\"gameVersionId\":\"$version_id\",\"title\":\"Smoke room\",\"maxPlayers\":2}" "http://$ADDR/api/rooms")"
+room_id="$(printf '%s' "$created_room" | jq -r '.id')"
+[[ -n "$room_id" ]]
+curl --noproxy '*' --fail --silent --show-error --cookie "$GUEST_COOKIE_JAR" --cookie-jar "$GUEST_COOKIE_JAR" \
+  --request POST --header 'Content-Type: application/json' --data '{"displayName":"Smoke player"}' "http://$ADDR/api/auth/guest" >/dev/null
+guest_csrf_token="$(awk '$6 == "rollboard_csrf" {print $7}' "$GUEST_COOKIE_JAR")"
+[[ -n "$guest_csrf_token" ]]
+curl --noproxy '*' --fail --silent --show-error --cookie "$GUEST_COOKIE_JAR" --header "X-CSRF-Token: $guest_csrf_token" --request POST "http://$ADDR/api/rooms/$room_id/join" >/dev/null
+room_state="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" "http://$ADDR/api/rooms/$room_id")"
+[[ "$room_state" == *'"members"'* && "$room_state" == *'"Smoke player"'* ]]
