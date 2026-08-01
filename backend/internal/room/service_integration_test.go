@@ -214,6 +214,88 @@ func TestRoomStartPinsPlayersAndRejectsOutOfTurnRoll(t *testing.T) {
 	}
 }
 
+func TestRoomRollStoresReplayableEventAndDeduplicatesCommand(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostUser := registerRoomUser(t, ctx, identities, "journal-host@example.com", "Host")
+	guestIdentity, err := identities.CreateGuest(ctx, "Guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogService, err := catalog.NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdGame, err := catalogService.CreateGame(ctx, hostUser.ID, roomDefinition("Journal game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := catalogService.Publish(ctx, hostUser.ID, createdGame.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rooms, err := NewService(pool, catalogService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := identity.Actor{User: &hostUser}
+	guest := identity.Actor{Guest: &guestIdentity}
+	created, err := rooms.Create(ctx, host, version.ID, CreateInput{Title: "Journal room", MaxPlayers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rooms.Join(ctx, guest, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rooms.Start(ctx, host, created.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	command := Command{ID: "0b66d950-6f5f-4f8d-b16e-49aa54d56d6d", Type: "roll"}
+	first, err := rooms.RollWithCommand(ctx, host, created.ID, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.StoredEvent == nil || first.StoredEvent.Type != "room_event" {
+		t.Fatalf("first RollWithCommand() = %#v, want stored room event", first)
+	}
+	events, contiguous, err := rooms.EventsSince(ctx, host, created.ID, first.Sequence-1)
+	if err != nil || !contiguous || len(events) != 1 || events[0].Sequence != first.Sequence {
+		t.Fatalf("EventsSince() = %#v, contiguous=%v, err=%v", events, contiguous, err)
+	}
+	second, err := rooms.RollWithCommand(ctx, host, created.ID, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Duplicate || second.Sequence != first.Sequence || second.StoredEvent == nil || second.StoredEvent.Sequence != first.StoredEvent.Sequence {
+		t.Fatalf("duplicate RollWithCommand() = %#v, want original receipt %#v", second, first)
+	}
+}
+
 func registerRoomUser(t *testing.T, ctx context.Context, identities *identity.Repository, email, displayName string) identity.User {
 	t.Helper()
 	user, err := identities.Register(ctx, identity.RegistrationInput{Email: email, DisplayName: displayName, Password: "correct-horse-battery-staple"})

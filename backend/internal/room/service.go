@@ -35,6 +35,7 @@ var (
 	ErrNoPendingAction     = errors.New("there is no pending action")
 	ErrMemberMuted         = errors.New("room member is muted")
 	ErrInvalidMessage      = errors.New("chat message must contain 1 to 1000 characters")
+	ErrInvalidCommand      = errors.New("room command is invalid")
 )
 
 const (
@@ -91,10 +92,28 @@ type RoomMessage struct {
 
 // Transition is an authoritative room state change suitable for realtime broadcast.
 type Transition struct {
-	RoomID   string            `json:"roomId"`
-	Sequence uint64            `json:"sequence"`
-	Session  *game.GameSession `json:"session"`
-	Events   []game.GameEvent  `json:"events"`
+	RoomID      string            `json:"roomId"`
+	Sequence    uint64            `json:"sequence"`
+	Session     *game.GameSession `json:"session"`
+	Events      []game.GameEvent  `json:"events"`
+	StoredEvent *StoredEvent      `json:"-"`
+	Duplicate   bool              `json:"-"`
+}
+
+// Command identifies one client mutation. An empty ID is supported only by
+// legacy callers while the websocket contract is migrated to idempotent IDs.
+type Command struct {
+	ID   string
+	Type string
+}
+
+// StoredEvent is a durable, wire-compatible room envelope payload.
+type StoredEvent struct {
+	RoomID    string          `json:"roomId"`
+	Sequence  uint64          `json:"sequence"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 func NewService(pool *pgxpool.Pool, catalogService *catalog.Service) (*Service, error) {
@@ -290,6 +309,15 @@ func (s *Service) Start(ctx context.Context, actor identity.Actor, roomID string
 // Roll validates the current player, resolves movement server-side and persists
 // one sequenced room transition.
 func (s *Service) Roll(ctx context.Context, actor identity.Actor, roomID string) (Transition, error) {
+	return s.RollWithCommand(ctx, actor, roomID, Command{})
+}
+
+// RollWithCommand performs a server-authoritative roll once for a client
+// command ID and returns the original persisted transition on a retry.
+func (s *Service) RollWithCommand(ctx context.Context, actor identity.Actor, roomID string, command Command) (Transition, error) {
+	if err := validateCommand(command, "roll"); err != nil {
+		return Transition{}, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Transition{}, fmt.Errorf("begin room roll: %w", err)
@@ -302,6 +330,21 @@ func (s *Service) Roll(ctx context.Context, actor identity.Actor, roomID string)
 	member, err := currentMember(actor, stored.Members)
 	if err != nil {
 		return Transition{}, err
+	}
+	if command.ID != "" {
+		receipt, err := commandReceipt(ctx, tx, stored.ID, actorReference(actor), command)
+		if err != nil {
+			return Transition{}, err
+		}
+		if receipt != nil {
+			var transition Transition
+			if err := json.Unmarshal(receipt.Payload, &transition); err != nil {
+				return Transition{}, fmt.Errorf("decode room command receipt: %w", err)
+			}
+			transition.StoredEvent = receipt
+			transition.Duplicate = true
+			return transition, nil
+		}
 	}
 	if stored.Status != StatusActive || stored.Session == nil || stored.Session.State.Status != "active" {
 		return Transition{}, ErrGameNotActive
@@ -323,10 +366,21 @@ func (s *Service) Roll(ctx context.Context, actor identity.Actor, roomID string)
 	if err := persistSession(ctx, tx, stored); err != nil {
 		return Transition{}, err
 	}
+	transition := Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}
+	event, err := recordEvent(ctx, tx, stored.ID, stored.Sequence, "room_event", transition)
+	if err != nil {
+		return Transition{}, err
+	}
+	if command.ID != "" {
+		if err := recordCommandReceipt(ctx, tx, stored.ID, actorReference(actor), command, event); err != nil {
+			return Transition{}, err
+		}
+	}
+	transition.StoredEvent = &event
 	if err := tx.Commit(ctx); err != nil {
 		return Transition{}, fmt.Errorf("commit room roll: %w", err)
 	}
-	return Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}, nil
+	return transition, nil
 }
 
 // ResolveAction resolves the current member's server-side pending choice.
@@ -582,6 +636,96 @@ func persistSession(ctx context.Context, tx pgx.Tx, stored *Room) error {
 	return nil
 }
 
+func recordEvent(ctx context.Context, tx pgx.Tx, roomID string, sequence uint64, eventType string, payload any) (StoredEvent, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return StoredEvent{}, fmt.Errorf("encode room event: %w", err)
+	}
+	var event StoredEvent
+	err = tx.QueryRow(ctx, `
+		INSERT INTO room_events (room_id, sequence, event_type, payload_json)
+		VALUES ($1, $2, $3, $4::jsonb)
+		RETURNING room_id::text, sequence, event_type, payload_json, created_at`, roomID, sequence, eventType, string(raw)).
+		Scan(&event.RoomID, &event.Sequence, &event.Type, &event.Payload, &event.CreatedAt)
+	if err != nil {
+		return StoredEvent{}, fmt.Errorf("record room event: %w", err)
+	}
+	return event, nil
+}
+
+func commandReceipt(ctx context.Context, tx pgx.Tx, roomID string, actor actorRef, command Command) (*StoredEvent, error) {
+	var event StoredEvent
+	var receiptType string
+	err := tx.QueryRow(ctx, `
+		SELECT events.room_id::text, events.sequence, events.event_type, events.payload_json, events.created_at, receipts.command_type
+		FROM room_command_receipts AS receipts
+		JOIN room_events AS events ON events.room_id = receipts.room_id AND events.sequence = receipts.event_sequence
+		WHERE receipts.room_id = $1 AND receipts.actor_kind = $2 AND receipts.actor_id = $3 AND receipts.command_id = $4`,
+		roomID, actor.kind, actor.id, command.ID).
+		Scan(&event.RoomID, &event.Sequence, &event.Type, &event.Payload, &event.CreatedAt, &receiptType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load room command receipt: %w", err)
+	}
+	if receiptType != command.Type {
+		return nil, fmt.Errorf("%w: command ID was already used for %s", ErrInvalidCommand, receiptType)
+	}
+	return &event, nil
+}
+
+func recordCommandReceipt(ctx context.Context, tx pgx.Tx, roomID string, actor actorRef, command Command, event StoredEvent) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO room_command_receipts (room_id, actor_kind, actor_id, command_id, command_type, event_sequence)
+		VALUES ($1, $2, $3, $4, $5, $6)`, roomID, actor.kind, actor.id, command.ID, command.Type, event.Sequence)
+	if err != nil {
+		return fmt.Errorf("record room command receipt: %w", err)
+	}
+	return nil
+}
+
+// EventsSince returns only a contiguous event range ending at the current room
+// sequence. A caller must use a snapshot instead when the journal has a gap.
+func (s *Service) EventsSince(ctx context.Context, actor identity.Actor, roomID string, since uint64) ([]StoredEvent, bool, error) {
+	stored, err := s.Get(ctx, roomID)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := currentMember(actor, stored.Members); err != nil {
+		return nil, false, err
+	}
+	if since >= stored.Sequence {
+		return []StoredEvent{}, true, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT room_id::text, sequence, event_type, payload_json, created_at
+		FROM room_events
+		WHERE room_id = $1 AND sequence > $2 AND sequence <= $3
+		ORDER BY sequence`, roomID, since, stored.Sequence)
+	if err != nil {
+		return nil, false, fmt.Errorf("list room events: %w", err)
+	}
+	defer rows.Close()
+	events := make([]StoredEvent, 0)
+	expected := since + 1
+	for rows.Next() {
+		var event StoredEvent
+		if err := rows.Scan(&event.RoomID, &event.Sequence, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+			return nil, false, fmt.Errorf("scan room event: %w", err)
+		}
+		if event.Sequence != expected {
+			return nil, false, nil
+		}
+		events = append(events, event)
+		expected++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("iterate room events: %w", err)
+	}
+	return events, expected == stored.Sequence+1, nil
+}
+
 func currentMember(actor identity.Actor, members []RoomMember) (*RoomMember, error) {
 	ref := actorReference(actor)
 	for i := range members {
@@ -617,6 +761,34 @@ func validateCreateInput(input *CreateInput) error {
 		return fmt.Errorf("room max players must be between 2 and 8")
 	}
 	return nil
+}
+
+func validateCommand(command Command, expectedType string) error {
+	if command.ID == "" {
+		return nil
+	}
+	if command.Type != expectedType || !isUUID(command.ID) {
+		return fmt.Errorf("%w: %s command requires a UUID ID", ErrInvalidCommand, expectedType)
+	}
+	return nil
+}
+
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, char := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func insertMember(ctx context.Context, tx pgx.Tx, roomID string, ref actorRef) (RoomMember, error) {
