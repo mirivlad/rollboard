@@ -6,7 +6,7 @@ Rollboard is a generic engine for route-based board games.
 
 - **Backend**: Go HTTP server with PostgreSQL persistence
 - **Frontend**: Svelte 5 + TypeScript + Vite
-- **Communication**: REST JSON API over HTTP
+- **Communication**: REST JSON API plus authenticated WebSocket room events
 
 ## Backend Structure
 
@@ -24,8 +24,11 @@ backend/
     │   ├── validation.go       — ValidateDefinition: geometry, graph, resources
     │   ├── engine_test.go      — tests for engine + demo validation
     │   └── validation_test.go  — tests for validation logic
-    ├── httpapi/
-    │   └── handler.go          — REST handlers: /api/health, /api/games, /api/sessions
+    ├── httpapi/                — REST and WebSocket upgrade handlers
+    ├── identity/               — accounts, guests and opaque sessions
+    ├── catalog/                — drafts and immutable published versions
+    ├── room/                   — room, membership, moderation and chat persistence
+    ├── realtime/               — in-process sequenced room hub
     └── storage/postgres/
         └── store.go            — PostgreSQL CRUD for games and sessions
 ```
@@ -84,7 +87,7 @@ frontend/src/
 ```
 User edits board → BoardEditor mutates GameDefinition.board
   → Save → POST /api/games/:id (serialized as JSON)
-  → Backend validates + stores in SQLite
+  → Backend validates + stores the author-owned draft in PostgreSQL
 
 User starts playtest → POST /api/games/:id/playtest
   → StartSession creates GameSession → stored
@@ -94,6 +97,17 @@ User clicks Roll → POST /api/sessions/:id/roll
   → RollDice (server RNG) → MoveCurrentPlayer → execute cell actions
   → Frontend shows dice result → animates token → shows pending action or turn done
 ```
+
+Online rooms use the same generic engine, but their client sends a WebSocket
+intent (`start`, `roll`, `action`, `chat`) rather than a rule result. PostgreSQL
+locks and persists the room snapshot before the in-process hub broadcasts a
+monotonic sequence. A room references `game_versions.id`, never a mutable draft.
+
+## Implementation boundaries
+
+Redis is included in the Docker/Portainer deployment but is not yet used for
+cross-process fan-out or presence. Invite links, command idempotency receipts and
+event replay are planned; this document does not claim them as implemented.
 
 ## Key Rules
 

@@ -1,7 +1,7 @@
-# Rollboard — Roll-and-Move Board Game Engine
+# Rollboard — self-hostable turn-based board-game platform
 
-A browser-based engine for creating and playtesting roll-and-move board games.
-Backend in Go, frontend in Svelte + Vite + TypeScript, storage in PostgreSQL.
+A browser-based platform for creating and running generic turn-based board games.
+Backend in Go, frontend in Svelte + Vite + TypeScript, durable storage in PostgreSQL.
 
 Game logic is defined entirely through data (ActionDefinition lists), not hardcoded in the runtime.
 This makes the engine generic — adding a new game type requires only a JSON definition, not backend code changes.
@@ -20,6 +20,11 @@ This makes the engine generic — adding a new game type requires only a JSON de
   - **Branching Demo**: dice-based even/odd branching routes
   - **Manual Branch Demo**: player-chosen paths with resource costs
 - Game persistence via PostgreSQL
+- Account registration, guest entry, opaque cookie sessions and CSRF protection
+- Private drafts and immutable published game versions
+- Multiplayer rooms pinned to a published version, guest joins and host moderation
+- Server-authoritative room start/roll/action processing over authenticated WebSocket
+- Persisted room-only chat with mute enforcement
 - Validation of game definitions
 - Event log for all game actions
 - Player elimination (bankruptcy)
@@ -183,17 +188,18 @@ Actions can:
 }
 ```
 
-## Limitations (MVP)
+## Current limitations
 
-- No authentication — anyone with access to the backend can read/write games
-- No WebSocket / real-time — uses HTTP polling for state refresh
+- The room browser currently exposes the version published in the active author session; a full catalog/search and shareable invite links are still planned.
+- The realtime hub is single-process. Redis is provisioned by Docker/Portainer, but cross-replica fan-out, presence and command idempotency are not implemented yet.
+- A room can be started and played online, but browser end-to-end verification of two simultaneous clients is still required before release.
 - No bot players — all players must be human (hotseat)
 - No image file uploads — image URLs only
 - Edge conditions are basic — only `always` type implemented
 - No undo / rollback
 - No property upgrades, mortgaging, or trading
 - No complex dice rules — single dice rule per game
-- No packaging — requires Go + Node.js to run
+- No bot players, undo/rollback, uploads, OAuth or arbitrary author-supplied code.
 
 ## Project Structure
 
