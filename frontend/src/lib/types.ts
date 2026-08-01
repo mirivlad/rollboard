@@ -90,6 +90,7 @@ export interface ActionDefinition {
   field?: string;
   title?: string;
   actionId?: string;
+  miniGame?: MiniGameReference;
   then?: ActionDefinition[];
   else?: ActionDefinition[];
   options?: ActionOption[];
@@ -99,6 +100,12 @@ export interface ActionOption {
   id: string;
   title: string;
   then?: ActionDefinition[];
+}
+
+export interface MiniGameReference {
+  moduleId: string;
+  version: number;
+  input?: Record<string, any>;
 }
 
 export interface PlayerConfig {

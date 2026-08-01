@@ -1,6 +1,7 @@
 package game
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -171,5 +172,22 @@ func TestValidateValidGame(t *testing.T) {
 	}
 	if err := ValidateDefinition(g); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestValidateReservesMiniGameActionUntilRunnerExists(t *testing.T) {
+	g := &GameDefinition{
+		ID: "test", Title: "Mini-game boundary",
+		Board: Board{Width: 96, Height: 96, CellSize: 96, Cells: []CellDefinition{{
+			ID: "start", Type: "start", OnLand: []ActionDefinition{{
+				Type: "launch_minigame", MiniGame: &MiniGameReference{ModuleID: "dice-duel", Version: 1},
+			}},
+		}}},
+		Rules: RuleSet{Dice: DiceRule{Count: 1, Sides: 6}, CellTypes: map[string]CellTypeDef{"start": {Title: "Start"}}},
+	}
+
+	err := ValidateDefinition(g)
+	if err == nil || !strings.Contains(err.Error(), "mini-game modules are not enabled") {
+		t.Fatalf("ValidateDefinition() error = %v, want explicit disabled mini-game error", err)
 	}
 }

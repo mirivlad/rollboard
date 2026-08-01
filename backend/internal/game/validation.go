@@ -55,6 +55,12 @@ func validateAction(action ActionDefinition) []string {
 		for _, a := range action.Else {
 			errs = append(errs, validateAction(a)...)
 		}
+	case "launch_minigame":
+		if action.MiniGame == nil || strings.TrimSpace(action.MiniGame.ModuleID) == "" || action.MiniGame.Version < 1 {
+			errs = append(errs, "launch_minigame: miniGame.moduleId and positive miniGame.version are required")
+			return errs
+		}
+		errs = append(errs, "launch_minigame: mini-game modules are not enabled in this build")
 	default:
 		// Unknown action types are allowed (forward compatibility)
 	}

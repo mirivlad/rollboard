@@ -109,6 +109,15 @@ Redis is included in the Docker/Portainer deployment but is not yet used for
 cross-process fan-out or presence. Invite links, command idempotency receipts and
 event replay are planned; this document does not claim them as implemented.
 
+### Mini-game extension boundary
+
+`launch_minigame` is a typed, reserved action with an immutable module ID and
+version. The current validator rejects it because no runner is wired. A future
+runner must execute outside the Rollboard process, receive only an explicit
+`MiniGameInvocation`, return schema-validated output, and let the room service
+apply that result inside its normal authoritative transaction. Author-supplied
+mini-game code must never access PostgreSQL or mutate a session directly.
+
 ## Key Rules
 
 - **Board geometry**: grid-based. `width = cols * cellSize`, `height = rows * cellSize`.

@@ -1,11 +1,11 @@
 package game
 
 type GameDefinition struct {
-	ID      string      `json:"id"`
-	Title   string      `json:"title"`
-	Version int         `json:"version"`
-	Board   Board       `json:"board"`
-	Rules   RuleSet     `json:"rules"`
+	ID      string  `json:"id"`
+	Title   string  `json:"title"`
+	Version int     `json:"version"`
+	Board   Board   `json:"board"`
+	Rules   RuleSet `json:"rules"`
 }
 
 type Board struct {
@@ -17,15 +17,15 @@ type Board struct {
 }
 
 type CellDefinition struct {
-	ID      string            `json:"id"`
-	Title   string            `json:"title"`
-	Type    string            `json:"type"`
-	X       int               `json:"x"`
-	Y       int               `json:"y"`
-	Visual  CellVisual        `json:"visual"`
-	Fields  map[string]any    `json:"fields"`
-	OnLand  []ActionDefinition `json:"onLand,omitempty"`
-	OnPass  []ActionDefinition `json:"onPass,omitempty"`
+	ID     string             `json:"id"`
+	Title  string             `json:"title"`
+	Type   string             `json:"type"`
+	X      int                `json:"x"`
+	Y      int                `json:"y"`
+	Visual CellVisual         `json:"visual"`
+	Fields map[string]any     `json:"fields"`
+	OnLand []ActionDefinition `json:"onLand,omitempty"`
+	OnPass []ActionDefinition `json:"onPass,omitempty"`
 }
 
 type CellVisual struct {
@@ -34,10 +34,10 @@ type CellVisual struct {
 }
 
 type EdgeDefinition struct {
-	ID        string         `json:"id"`
-	From      string         `json:"from"`
-	To        string         `json:"to"`
-	Condition EdgeCondition  `json:"condition"`
+	ID        string        `json:"id"`
+	From      string        `json:"from"`
+	To        string        `json:"to"`
+	Condition EdgeCondition `json:"condition"`
 }
 
 type EdgeCondition struct {
@@ -49,16 +49,16 @@ type EdgeCondition struct {
 }
 
 type RuleSet struct {
-	Dice      DiceRule                   `json:"dice"`
-	Resources map[string]ResourceRule    `json:"resources"`
-	CellTypes map[string]CellTypeDef     `json:"cellTypes"`
-	StartBonus         int    `json:"startBonus"`
-	StartBonusResource string `json:"startBonusResource"`
+	Dice               DiceRule                `json:"dice"`
+	Resources          map[string]ResourceRule `json:"resources"`
+	CellTypes          map[string]CellTypeDef  `json:"cellTypes"`
+	StartBonus         int                     `json:"startBonus"`
+	StartBonusResource string                  `json:"startBonusResource"`
 }
 
 type DiceRule struct {
-	Count  int `json:"count"`
-	Sides  int `json:"sides"`
+	Count int `json:"count"`
+	Sides int `json:"sides"`
 }
 
 type ResourceRule struct {
@@ -68,8 +68,8 @@ type ResourceRule struct {
 }
 
 type CellTypeDef struct {
-	Title  string                    `json:"title"`
-	Fields map[string]FieldDef       `json:"fields"`
+	Title  string              `json:"title"`
+	Fields map[string]FieldDef `json:"fields"`
 }
 
 type FieldDef struct {
@@ -89,6 +89,7 @@ type ActionDefinition struct {
 	Field       string             `json:"field,omitempty"`
 	Title       string             `json:"title,omitempty"`
 	ActionID    string             `json:"actionId,omitempty"`
+	MiniGame    *MiniGameReference `json:"miniGame,omitempty"`
 	Then        []ActionDefinition `json:"then,omitempty"`
 	Else        []ActionDefinition `json:"else,omitempty"`
 	Options     []ActionOption     `json:"options,omitempty"`

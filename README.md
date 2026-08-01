@@ -154,6 +154,7 @@ Actions can:
 | `if_resource_ge` | `resource`, `amount`, `then`, `else` | Branch if player has ≥ amount of resource |
 | `finish_game` | — | End the game; current player wins |
 | `log_message` | `title` (message) | Add a log entry without modifying state |
+| `launch_minigame` | `miniGame` | Reserved for a pinned sandboxed module; publication is rejected until the isolated runner is implemented |
 
 ### Example: Property Buy/Rent
 
@@ -203,6 +204,7 @@ Actions can:
 - No property upgrades, mortgaging, or trading
 - No complex dice rules — single dice rule per game
 - No OAuth or arbitrary author-supplied code.
+- Mini-game module metadata and a typed `launch_minigame` reference are reserved, but no mini-game runner is enabled yet. This deliberately prevents untrusted mini-game code from running in the application process.
 
 ## Project Structure
 
