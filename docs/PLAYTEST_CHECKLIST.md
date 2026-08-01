@@ -130,6 +130,24 @@ Check:
 
 ---
 
+## Multiplayer room
+
+Use two independent browser sessions: an account host and a guest or second account.
+
+* [ ] Host publishes a game version and creates a room.
+* [ ] Guest joins with the displayed room ID.
+* [ ] Host roster updates without a page reload.
+* [ ] Both clients show `LIVE ROOM`; browser network shows a WebSocket upgrade.
+* [ ] Only the host can start the lobby.
+* [ ] After start, only the current player sees **Roll dice**.
+* [ ] A roll changes the board and turn on both clients.
+* [ ] A generic pending action shows only to its designated player.
+* [ ] Resolving the action advances the turn on both clients.
+* [ ] Chat appears on both clients and persists after reload.
+* [ ] A muted player cannot send chat; host mute/unmute and removal return clear UI feedback once moderation controls are exposed.
+
+---
+
 ## Process cleanup after test
 
 After closing dev server with Ctrl+C:

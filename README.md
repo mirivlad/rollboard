@@ -97,19 +97,20 @@ ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
 1. Run `./scripts/dev.sh`
 2. Open http://localhost:5173
 
-### Create a Mini-Monopoly Demo
+### Create and publish a game
 
-1. In the sidebar, click **"Demo Mini-Monopoly"**
-2. Inspect the board: cells, edges, cell properties
-3. Click **Save** (hotkey: Ctrl+S)
-4. Click **Validate** to confirm the definition is correct
+1. Create an account — guests can join rooms but cannot publish games.
+2. In **Your games**, choose **Blank board**, **Mini-Monopoly**, or **Dungeon Race**.
+3. Edit the definition, save the private draft, then select **Publish**.
+4. Open **Rooms**, select the published version, and create a room.
+5. Share the displayed room ID with other players. They may join as guests.
 
-### Create a Dungeon Race Demo
+### Run an online room
 
-1. Click **"Demo Dungeon Race"**
-2. Inspect the board, resources (health, gold, keys), and cell actions
-3. Click **Save**
-4. Click **Validate**
+1. The account that created the room starts it after at least two players join.
+2. Only the current player sees **Roll dice**; the browser sends an intention and the server returns the result.
+3. If the engine creates a choice, only the player named by the server can choose an option.
+4. Use the room chat for the current room. The host can mute or remove members through the API; UI controls for moderation are planned.
 
 ### Run a Hotseat Playtest
 
@@ -192,14 +193,13 @@ Actions can:
 
 - The room browser currently exposes the version published in the active author session; a full catalog/search and shareable invite links are still planned.
 - The realtime hub is single-process. Redis is provisioned by Docker/Portainer, but cross-replica fan-out, presence and command idempotency are not implemented yet.
-- Browser verification currently covers two simultaneous clients creating/joining a room, starting, rolling and exchanging room chat; wider responsive-device coverage is still required before release.
-- No bot players — all players must be human (hotseat)
+- Browser verification covers two simultaneous clients creating/joining a room, live roster updates, starting, rolling, resolving a purchase choice and room chat; wider responsive-device coverage is still required before release.
+- No bot players — all players must be human.
 - No image file uploads — image URLs only
-- Edge conditions are basic — only `always` type implemented
 - No undo / rollback
 - No property upgrades, mortgaging, or trading
 - No complex dice rules — single dice rule per game
-- No bot players, undo/rollback, uploads, OAuth or arbitrary author-supplied code.
+- No OAuth or arbitrary author-supplied code.
 
 ## Project Structure
 
@@ -207,16 +207,14 @@ Actions can:
 ├── Makefile
 ├── backend/
 │   ├── cmd/server/main.go            # Entry point
-│   ├── internal/game/
-│   │   ├── definition.go             # GameDefinition, Board, Cell, Edge types
-│   │   ├── session.go                # GameSession, PlayerState, PendingAction
-│   │   ├── engine.go                 # Generic action executor (no game-specific logic)
-│   │   ├── validation.go             # GameDefinition validation
-│   │   └── engine_test.go            # Backend tests
-│   ├── internal/httpapi/
-│   │   └── handler.go                # HTTP API handlers
-│   └── internal/storage/sqlite/
-│       └── store.go                  # SQLite CRUD operations
+│   └── internal/
+│       ├── game/                      # Generic definition, runtime and validation
+│       ├── httpapi/                   # HTTP and WebSocket handlers
+│       ├── identity/                  # Accounts, guests and sessions
+│       ├── catalog/                   # Drafts and immutable versions
+│       ├── room/                      # Rooms, membership, chat and moderation
+│       ├── realtime/                  # Sequenced WebSocket room hub
+│       └── storage/postgres/          # PostgreSQL migrations and storage
 ├── frontend/
 │   ├── src/
 │   │   ├── App.svelte                # Main app shell + navigation
@@ -230,7 +228,9 @@ Actions can:
 │   │       ├── CellView.svelte        # Single cell rendering
 │   │       ├── EdgeLayer.svelte       # SVG edge arrows
 │   │       ├── CellInspector.svelte   # Right panel for cell editing
-│   │       └── PlaytestPanel.svelte   # Hotseat playtest UI
+│   │       ├── PlaytestPanel.svelte   # Hotseat playtest UI
+│   │       ├── RoomLobby.svelte       # Create/join room UI
+│   │       └── RoomPlay.svelte        # Realtime room and chat UI
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── index.html
@@ -257,6 +257,12 @@ Actions can:
 | GET | `/api/sessions/{id}` | Get current session state |
 | POST | `/api/sessions/{id}/roll` | Roll dice and move current player |
 | POST | `/api/sessions/{id}/actions` | Resolve pending action (`{actionId}`) |
+| POST | `/api/auth/register` | Register an account and create a session |
+| POST | `/api/auth/guest` | Create a guest session |
+| POST | `/api/rooms` | Create a room pinned to a published version |
+| GET | `/api/rooms/{id}` | Get room state (room members only) |
+| POST | `/api/rooms/{id}/join` | Join a room |
+| GET | `/api/rooms/{id}/ws` | Authenticated realtime room connection |
 
 ## Troubleshooting
 
@@ -288,20 +294,16 @@ lsof -ti :5173 | xargs kill -9
 
 Or edit `frontend/vite.config.ts` to change the port.
 
-### Database path issue
+### Database connection issue
 
-If the backend fails to start with a SQLite error, ensure the directory for the database exists:
-
-```bash
-mkdir -p $(dirname "$ROLLBOARD_DB_PATH")
-```
-
-Or use the default:
+Rollboard requires PostgreSQL. Check that the local Compose service is healthy:
 
 ```bash
-export ROLLBOARD_DB_PATH=./data/rollboard.db
-mkdir -p ./data
+docker compose ps postgres
+docker compose logs postgres
 ```
+
+For a remote database, set `ROLLBOARD_DATABASE_URL` to a valid PostgreSQL URL and restart the backend.
 
 ### node_modules missing
 

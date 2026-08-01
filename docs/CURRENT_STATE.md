@@ -27,7 +27,7 @@ authoritative start/roll and out-of-turn rejection.
 
 ## Release blockers / next work
 
-- Two Chromium/Playwright contexts verified account publication → room creation → guest join → authenticated WebSocket upgrades → host start → authoritative roll → guest chat broadcast. Screenshot: `/tmp/rollboard-multiplayer.png` (test artifact, not committed).
+- Two Chromium/Playwright contexts verified account publication → room creation → guest join → live roster refresh → authenticated WebSocket upgrades → host start → authoritative roll → generic purchase choice resolution → chat broadcast. Screenshot: `/tmp/rollboard-multiplayer.png` (test artifact, not committed).
 - Redis is present in deployment but the realtime hub is still single-process; no cross-replica fan-out, presence or rate limiting exists yet.
 - Room discovery, invite links, full published-version catalog and reconnect event replay are not implemented.
 - `scripts/backend.sh` and `scripts/browser-smoke.sh` require audit before being advertised as supported paths.
