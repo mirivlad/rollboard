@@ -175,12 +175,14 @@ CREATE TABLE sessions (
 CREATE INDEX sessions_game_id_idx ON sessions(game_id);
 ```
 
-- [ ] **Step 4: Run the migration test against Compose PostgreSQL**
+- [ ] **Step 4: Run the migration test against a disposable PostgreSQL container**
 
-Run: `docker compose up -d postgres && cd backend && ROLLBOARD_TEST_DATABASE_URL='postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable' go test ./internal/storage/postgres -run TestMigrate -count=1`
+Run: `docker run --detach --rm --name rollboard-foundation-postgres -e POSTGRES_USER=rollboard -e POSTGRES_PASSWORD=rollboard -e POSTGRES_DB=rollboard_test -p 127.0.0.1:55432:5432 postgres:16-alpine`
 
-Expected: PASS. Create `rollboard_test` in the Compose init script before this
-command, not dynamically in application code.
+Then run: `cd backend && ROLLBOARD_TEST_DATABASE_URL='postgres://rollboard:rollboard@127.0.0.1:55432/rollboard_test?sslmode=disable' go test ./internal/storage/postgres -run TestMigrate -count=1`
+
+Expected: PASS. Stop the explicit test container with
+`docker stop rollboard-foundation-postgres` after the foundation is verified.
 
 - [ ] **Step 5: Commit the migration layer**
 
