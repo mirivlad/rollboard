@@ -3,8 +3,8 @@
 #
 # Usage:  ./scripts/validate-demos.sh
 #
-# Starts the backend on a random port with a temp DB, POSTs each demo,
-# calls the validate endpoint, cleans up.
+# Starts the backend on a random port with the dedicated PostgreSQL test DB,
+# POSTs each demo, calls the validate endpoint, and cleans up.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,19 +13,33 @@ FAIL=0
 
 PORT=$(( (RANDOM % 1000) + 9000 ))
 ADDR="127.0.0.1:${PORT}"
-DB_PATH=$(mktemp /tmp/rollboard-validate-XXXXXX.db)
+DATABASE_URL="postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable"
 BACKEND_PID=""
 
 cleanup() {
   if [ -n "$BACKEND_PID" ]; then
-    kill -9 "$BACKEND_PID" 2>/dev/null || true
+    kill "$BACKEND_PID" 2>/dev/null || true
+    wait "$BACKEND_PID" 2>/dev/null || true
   fi
-  rm -f "$DB_PATH" "$DB_PATH-shm" "$DB_PATH-wal" "$SERVER_BIN" 2>/dev/null || true
+  rm -f "$SERVER_BIN" 2>/dev/null || true
+  docker compose --project-directory "$ROOT" down --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
 echo "=== Demo Validation Check ==="
-echo "Starting backend on $ADDR (temp DB: $DB_PATH)..."
+echo "Starting backend on $ADDR (PostgreSQL test DB)..."
+
+docker compose --project-directory "$ROOT" up --detach postgres >/dev/null
+for i in $(seq 1 30); do
+  if docker compose --project-directory "$ROOT" exec -T postgres pg_isready -U rollboard -d rollboard_test >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "  FAIL: PostgreSQL test database did not become ready"
+    exit 1
+  fi
+  sleep 1
+done
 
 # Build server binary first to avoid go-run subprocess leaks
 SERVER_BIN=$(mktemp /tmp/rollboard-server-XXXXXX)
@@ -34,7 +48,7 @@ go build -o "$SERVER_BIN" ./cmd/server/
 cd "$ROOT"
 
 # Run directly (no go wrapper) so kill works properly
-"$SERVER_BIN" -addr "$ADDR" -dsn "$DB_PATH" &
+ROLLBOARD_DATABASE_URL="$DATABASE_URL" "$SERVER_BIN" -addr "$ADDR" &
 BACKEND_PID=$!
 
 # Wait for server to start
@@ -52,6 +66,9 @@ if [ "$HEALTH" != "200" ]; then
   exit 1
 fi
 echo "  Backend is healthy."
+
+docker compose --project-directory "$ROOT" exec -T postgres \
+  psql -U rollboard -d rollboard_test -c 'TRUNCATE sessions, games CASCADE' >/dev/null
 
 # --- Helper: POST a game definition and validate it ---
 validate_demo() {

@@ -20,3 +20,28 @@ type PublicUser struct {
 func (u User) Public() PublicUser {
 	return PublicUser{ID: u.ID, Email: u.Email, DisplayName: u.DisplayName, CreatedAt: u.CreatedAt}
 }
+
+type Guest struct {
+	ID              string
+	DisplayName     string
+	ClaimedByUserID *string
+	CreatedAt       time.Time
+	ClaimedAt       *time.Time
+}
+
+type Session struct {
+	ID          string
+	UserID      *string
+	GuestID     *string
+	TokenDigest []byte
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+}
+
+// Actor identifies the currently authenticated account or guest.
+// Exactly one field is non-nil for a valid active session.
+type Actor struct {
+	SessionID string
+	User      *User
+	Guest     *Guest
+}

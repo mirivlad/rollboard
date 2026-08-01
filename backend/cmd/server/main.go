@@ -39,7 +39,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create identity repository: %v", err)
 	}
-	api := httpapi.New(store).WithIdentity(identityRepository)
+	api := httpapi.New(store).
+		WithIdentity(identityRepository).
+		WithAuthOptions(httpapi.AuthOptions{CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))

@@ -14,11 +14,14 @@ func NewToken() (string, []byte, error) {
 		return "", nil, fmt.Errorf("generate token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	return token, DigestToken(token), nil
+}
+
+func DigestToken(token string) []byte {
 	digest := sha256.Sum256([]byte(token))
-	return token, digest[:], nil
+	return digest[:]
 }
 
 func VerifyToken(digest []byte, token string) bool {
-	expected := sha256.Sum256([]byte(token))
-	return subtle.ConstantTimeCompare(digest, expected[:]) == 1
+	return subtle.ConstantTimeCompare(digest, DigestToken(token)) == 1
 }

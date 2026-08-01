@@ -33,7 +33,10 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 
-game='{"id":"smoke-test-game","title":"Smoke Test","version":1,"board":{"width":96,"height":96,"cellSize":96,"cells":[{"id":"start","title":"Start","type":"start","x":0,"y":0,"visual":{"baseColor":"#4caf50"},"fields":{}}],"edges":[]},"rules":{"dice":{"count":1,"sides":6},"resources":{},"cellTypes":{},"startBonus":0,"startBonusResource":""}}'
-curl --noproxy '*' --fail --silent --show-error --request POST --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games" >/dev/null || true
-curl --noproxy '*' --fail --silent --show-error "http://$ADDR/api/games/smoke-test-game" | grep --quiet '"id":"smoke-test-game"'
-curl --noproxy '*' --fail --silent --show-error --request POST "http://$ADDR/api/games/smoke-test-game/validate" | grep --quiet '"valid":true'
+game_id="smoke-test-${RANDOM}-${RANDOM}"
+game="{\"id\":\"$game_id\",\"title\":\"Smoke Test\",\"version\":1,\"board\":{\"width\":96,\"height\":96,\"cellSize\":96,\"cells\":[{\"id\":\"start\",\"title\":\"Start\",\"type\":\"start\",\"x\":0,\"y\":0,\"visual\":{\"baseColor\":\"#4caf50\"},\"fields\":{}}],\"edges\":[]},\"rules\":{\"dice\":{\"count\":1,\"sides\":6},\"resources\":{},\"cellTypes\":{\"start\":{\"title\":\"Start\",\"fields\":{}}},\"startBonus\":0,\"startBonusResource\":\"\"}}"
+curl --noproxy '*' --fail --silent --show-error --request POST --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games" >/dev/null
+loaded_game="$(curl --noproxy '*' --fail --silent --show-error "http://$ADDR/api/games/$game_id")"
+[[ "$loaded_game" == *"\"id\":\"$game_id\""* ]]
+validation="$(curl --noproxy '*' --fail --silent --show-error --request POST "http://$ADDR/api/games/$game_id/validate")"
+[[ "$validation" == *'"valid":true'* ]]

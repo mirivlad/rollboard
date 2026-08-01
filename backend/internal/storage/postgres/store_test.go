@@ -72,7 +72,7 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("New() error = %v", err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(context.Background(), `TRUNCATE sessions, games`); err != nil {
+	if _, err := store.pool.Exec(context.Background(), `TRUNCATE sessions, games CASCADE`); err != nil {
 		t.Fatalf("clear test tables: %v", err)
 	}
 	return store

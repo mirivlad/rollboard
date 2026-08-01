@@ -1,25 +1,48 @@
 package httpapi
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
 	"rollboard/internal/storage"
 )
 
+const (
+	sessionCookieName = "rollboard_session"
+	csrfCookieName    = "rollboard_csrf"
+	csrfHeaderName    = "X-CSRF-Token"
+	defaultSessionTTL = 30 * 24 * time.Hour
+)
+
 type API struct {
 	store    storage.Store
-	identity *identity.Repository
+	identity identity.Service
+	auth     AuthOptions
 }
 
-func (a *API) WithIdentity(repository *identity.Repository) *API {
-	a.identity = repository
+type AuthOptions struct {
+	CookieSecure bool
+	SessionTTL   time.Duration
+}
+
+func (a *API) WithIdentity(service identity.Service) *API {
+	a.identity = service
+	return a
+}
+
+func (a *API) WithAuthOptions(options AuthOptions) *API {
+	if options.SessionTTL > 0 {
+		a.auth.SessionTTL = options.SessionTTL
+	}
+	a.auth.CookieSecure = options.CookieSecure
 	return a
 }
 
@@ -30,7 +53,7 @@ type apiError struct {
 }
 
 func New(store storage.Store) *API {
-	return &API{store: store}
+	return &API{store: store, auth: AuthOptions{SessionTTL: defaultSessionTTL}}
 }
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
@@ -38,9 +61,207 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/readyz", a.Readyz)
 	mux.HandleFunc("/api/health", a.handleHealth)
 	mux.HandleFunc("/api/auth/register", a.handleRegister)
+	mux.HandleFunc("/api/auth/guest", a.handleGuestEntry)
+	mux.HandleFunc("/api/auth/login", a.handleLogin)
+	mux.HandleFunc("/api/auth/me", a.handleMe)
+	mux.HandleFunc("/api/auth/logout", a.handleLogout)
 	mux.HandleFunc("/api/games", a.handleGames)
 	mux.HandleFunc("/api/games/", a.handleGameByID)
 	mux.HandleFunc("/api/sessions/", a.handleSessions)
+}
+
+func (a *API) handleGuestEntry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.identity == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	var body struct {
+		DisplayName string `json:"displayName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+		return
+	}
+	guest, err := a.identity.CreateGuest(r.Context(), body.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_GUEST", "guest entry failed", "display name must contain 1 to 64 characters")
+		return
+	}
+	_, token, err := a.identity.CreateGuestSession(r.Context(), guest.ID, time.Now().Add(a.auth.SessionTTL))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start guest session", "try again later")
+		return
+	}
+	if err := a.setSessionCookies(w, token); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start guest session", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"kind":  "guest",
+		"guest": map[string]string{"id": guest.ID, "displayName": guest.DisplayName},
+	})
+}
+
+func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.identity == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+		return
+	}
+	user, err := a.identity.Authenticate(r.Context(), body.Email, body.Password)
+	if errors.Is(err, identity.ErrInvalidCredentials) {
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password", "check your credentials")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not sign in", "try again later")
+		return
+	}
+	_, token, err := a.identity.CreateUserSession(r.Context(), user.ID, time.Now().Add(a.auth.SessionTTL))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start account session", "try again later")
+		return
+	}
+	if err := a.setSessionCookies(w, token); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start account session", "try again later")
+		return
+	}
+	writeJSON(w, http.StatusOK, user.Public())
+}
+
+func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, publicActor(actor))
+}
+
+func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.identity == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	if !requireCSRF(w, r) {
+		return
+	}
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		if err := a.identity.DeleteSession(r.Context(), cookie.Value); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not end session", "try again later")
+			return
+		}
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   a.auth.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    "",
+		Path:     "/",
+		Secure:   a.auth.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func requireCSRF(w http.ResponseWriter, r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookieName)
+	if err != nil || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.Header.Get(csrfHeaderName))) != 1 {
+		writeError(w, http.StatusForbidden, "CSRF_FAILED", "request verification failed", "refresh the page and try again")
+		return false
+	}
+	return true
+}
+
+func (a *API) currentActor(w http.ResponseWriter, r *http.Request) (*identity.Actor, bool) {
+	if a.identity == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return nil, false
+	}
+	cookie, err := r.Cookie(sessionCookieName)
+	if errors.Is(err, http.ErrNoCookie) {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "sign in required", "create a guest session or sign in")
+		return nil, false
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_SESSION", "invalid session", "sign in again")
+		return nil, false
+	}
+	actor, err := a.identity.LookupSession(r.Context(), cookie.Value, time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+		return nil, false
+	}
+	if actor == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "sign in required", "create a guest session or sign in")
+		return nil, false
+	}
+	return actor, true
+}
+
+func publicActor(actor *identity.Actor) map[string]any {
+	if actor.User != nil {
+		return map[string]any{"kind": "user", "user": actor.User.Public()}
+	}
+	return map[string]any{
+		"kind":  "guest",
+		"guest": map[string]string{"id": actor.Guest.ID, "displayName": actor.Guest.DisplayName},
+	}
+}
+
+func (a *API) setSessionCookies(w http.ResponseWriter, token string) error {
+	csrfToken, _, err := identity.NewToken()
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   a.auth.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(a.auth.SessionTTL.Seconds()),
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    csrfToken,
+		Path:     "/",
+		Secure:   a.auth.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(a.auth.SessionTTL.Seconds()),
+	})
+	return nil
 }
 
 func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -57,13 +278,17 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
 		return
 	}
+	if err := input.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REGISTRATION", "registration failed", err.Error())
+		return
+	}
 	user, err := a.identity.Register(r.Context(), input)
 	if errors.Is(err, identity.ErrEmailTaken) {
 		writeError(w, http.StatusConflict, "EMAIL_TAKEN", "email is already registered", "sign in instead")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REGISTRATION", "registration failed", err.Error())
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not register account", "try again later")
 		return
 	}
 	writeJSON(w, http.StatusCreated, user.Public())

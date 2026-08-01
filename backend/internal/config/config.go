@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -13,6 +14,7 @@ const (
 	defaultDatabaseURL = "postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable"
 	defaultRedisURL    = "redis://127.0.0.1:6379/0"
 	defaultAppOrigin   = "http://127.0.0.1:5173"
+	defaultSessionTTL  = 30 * 24 * time.Hour
 )
 
 type Config struct {
@@ -20,6 +22,7 @@ type Config struct {
 	DatabaseURL  string
 	RedisURL     string
 	CookieSecure bool
+	SessionTTL   time.Duration
 	AppOrigin    string
 	StaticDir    string
 }
@@ -29,12 +32,17 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	sessionTTL, err := envDuration("ROLLBOARD_SESSION_TTL", defaultSessionTTL)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Addr:         env("ROLLBOARD_ADDR", defaultAddr),
 		DatabaseURL:  env("ROLLBOARD_DATABASE_URL", defaultDatabaseURL),
 		RedisURL:     env("ROLLBOARD_REDIS_URL", defaultRedisURL),
 		CookieSecure: secure,
+		SessionTTL:   sessionTTL,
 		AppOrigin:    env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
 		StaticDir:    strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
 	}
@@ -72,6 +80,18 @@ func envBool(name string, fallback bool) (bool, error) {
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
+	}
+	return parsed, nil
+}
+
+func envDuration(name string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive Go duration", name)
 	}
 	return parsed, nil
 }

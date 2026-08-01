@@ -1,12 +1,16 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadUsesSafeDefaults(t *testing.T) {
 	t.Setenv("ROLLBOARD_ADDR", "")
 	t.Setenv("ROLLBOARD_DATABASE_URL", "")
 	t.Setenv("ROLLBOARD_REDIS_URL", "")
 	t.Setenv("ROLLBOARD_COOKIE_SECURE", "")
+	t.Setenv("ROLLBOARD_SESSION_TTL", "")
 	t.Setenv("ROLLBOARD_APP_ORIGIN", "")
 
 	cfg, err := Load()
@@ -24,6 +28,21 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 	if cfg.CookieSecure {
 		t.Error("CookieSecure = true, want false")
+	}
+	if cfg.SessionTTL != 30*24*time.Hour {
+		t.Errorf("SessionTTL = %s, want 720h", cfg.SessionTTL)
+	}
+}
+
+func TestLoadReadsSessionTTL(t *testing.T) {
+	t.Setenv("ROLLBOARD_SESSION_TTL", "168h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.SessionTTL != 168*time.Hour {
+		t.Errorf("SessionTTL = %s, want 168h", cfg.SessionTTL)
 	}
 }
 
