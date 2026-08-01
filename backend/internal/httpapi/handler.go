@@ -2,17 +2,25 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"rollboard/internal/game"
+	"rollboard/internal/identity"
 	"rollboard/internal/storage"
 )
 
 type API struct {
-	store storage.Store
+	store    storage.Store
+	identity *identity.Repository
+}
+
+func (a *API) WithIdentity(repository *identity.Repository) *API {
+	a.identity = repository
+	return a
 }
 
 type apiError struct {
@@ -29,9 +37,36 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", a.Healthz)
 	mux.HandleFunc("/readyz", a.Readyz)
 	mux.HandleFunc("/api/health", a.handleHealth)
+	mux.HandleFunc("/api/auth/register", a.handleRegister)
 	mux.HandleFunc("/api/games", a.handleGames)
 	mux.HandleFunc("/api/games/", a.handleGameByID)
 	mux.HandleFunc("/api/sessions/", a.handleSessions)
+}
+
+func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
+		return
+	}
+	if a.identity == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	var input identity.RegistrationInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+		return
+	}
+	user, err := a.identity.Register(r.Context(), input)
+	if errors.Is(err, identity.ErrEmailTaken) {
+		writeError(w, http.StatusConflict, "EMAIL_TAKEN", "email is already registered", "sign in instead")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REGISTRATION", "registration failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, user.Public())
 }
 
 func (a *API) Healthz(w http.ResponseWriter, _ *http.Request) {

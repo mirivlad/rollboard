@@ -14,6 +14,7 @@ import (
 
 	"rollboard/internal/config"
 	"rollboard/internal/httpapi"
+	"rollboard/internal/identity"
 	"rollboard/internal/storage/postgres"
 )
 
@@ -34,7 +35,11 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	api := httpapi.New(store)
+	identityRepository, err := identity.NewRepository(store.Pool())
+	if err != nil {
+		log.Fatalf("failed to create identity repository: %v", err)
+	}
+	api := httpapi.New(store).WithIdentity(identityRepository)
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))
