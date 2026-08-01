@@ -17,6 +17,9 @@
   let busy = $state(false);
   let publishedVersions = $state<GameVersion[]>([]);
   let currentRoom = $state<Room | null>(null);
+  let roomActor = $derived(principal?.kind === 'user'
+    ? { kind: 'user' as const, id: principal.user.id }
+    : { kind: 'guest' as const, id: principal?.guest.id ?? '' });
 
   function showError(error: unknown) { message = error instanceof Error ? error.message : 'Something went wrong'; }
   function displayName() { return principal?.kind === 'user' ? principal.user.displayName : principal?.guest.displayName ?? ''; }
@@ -90,7 +93,7 @@
       <RoomLobby versions={publishedVersions} onCreate={createRoom} onJoin={joinRoom} {busy} />
     {:else if view === 'room' && currentRoom}
       <nav class="editor-actions"><button onclick={() => (view = 'rooms')}>← Rooms</button><code>{currentRoom.id}</code></nav>
-      <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} onRoom={(room) => (currentRoom = room)} />
+      <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} actor={roomActor} onRoom={(room) => (currentRoom = room)} />
     {/if}
   </main>
 </div>

@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -103,6 +104,74 @@ func TestHubBroadcastsPersistedChatMessage(t *testing.T) {
 	}
 }
 
+func TestHubRefreshBroadcastsLatestRoomState(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	guest := identity.Guest{ID: "guest-id", DisplayName: "Guest"}
+	service := &fakeRoomService{room: &room.Room{ID: "room-id", Sequence: 1, Members: []room.RoomMember{
+		{ActorKind: "user", ActorID: host.ID},
+		{ActorKind: "guest", ActorID: guest.ID},
+	}}}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{User: &host}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostClient.Close()
+	guestClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{Guest: &guest}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestClient.Close()
+	receiveEnvelope(t, hostClient)
+	receiveEnvelope(t, guestClient)
+
+	service.room.Sequence = 2
+	if err := hub.Refresh(context.Background(), "room-id"); err != nil {
+		t.Fatal(err)
+	}
+	if event := receiveEnvelope(t, hostClient); event.Type != EventRoomState || event.Sequence != 2 {
+		t.Fatalf("host refresh event = %#v, want room state sequence 2", event)
+	}
+	if event := receiveEnvelope(t, guestClient); event.Type != EventRoomState || event.Sequence != 2 {
+		t.Fatalf("guest refresh event = %#v, want room state sequence 2", event)
+	}
+}
+
+func TestHubStartBroadcastsRoomStateWithAssignedPlayers(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	initial := &room.Room{ID: "room-id", Sequence: 1, Status: room.StatusLobby, Members: []room.RoomMember{{ActorKind: "user", ActorID: host.ID}}}
+	started := &room.Room{ID: "room-id", Sequence: 2, Status: room.StatusActive, Session: &game.GameSession{State: game.GameState{Status: "active"}}, Members: []room.RoomMember{{ActorKind: "user", ActorID: host.ID, PlayerID: "player_1"}}}
+	service := &fakeRoomService{room: initial, startRoom: started}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := hub.Connect(context.Background(), "room-id", identity.Actor{User: &host}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	receiveEnvelope(t, client)
+
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentStart}); err != nil {
+		t.Fatal(err)
+	}
+	event := receiveEnvelope(t, client)
+	if event.Type != EventRoomState || event.Sequence != 2 {
+		t.Fatalf("start event = %#v, want room state sequence 2", event)
+	}
+	var payload room.Room
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Members[0].PlayerID != "player_1" || payload.Session == nil {
+		t.Fatalf("start payload = %#v, want assigned player IDs and session", payload)
+	}
+}
+
 func receiveEnvelope(t *testing.T, client *Client) Envelope {
 	t.Helper()
 	select {
@@ -125,6 +194,7 @@ func assertNoEnvelope(t *testing.T, client *Client) {
 
 type fakeRoomService struct {
 	room       *room.Room
+	startRoom  *room.Room
 	transition room.Transition
 	rollCalls  int
 	chat       room.RoomMessage
@@ -133,6 +203,9 @@ type fakeRoomService struct {
 func (f *fakeRoomService) Get(context.Context, string) (*room.Room, error) { return f.room, nil }
 
 func (f *fakeRoomService) Start(context.Context, identity.Actor, string) (*room.Room, error) {
+	if f.startRoom != nil {
+		f.room = f.startRoom
+	}
 	return f.room, nil
 }
 

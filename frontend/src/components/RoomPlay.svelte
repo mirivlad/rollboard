@@ -4,8 +4,9 @@
   import { api } from '../lib/api';
   import BoardView from './BoardView.svelte';
 
-  type Props = { room: Room; canStart: boolean; onRoom?: (room: Room) => void };
-  let { room, canStart, onRoom = () => {} }: Props = $props();
+  type Actor = { kind: 'user' | 'guest'; id: string };
+  type Props = { room: Room; canStart: boolean; actor: Actor; onRoom?: (room: Room) => void };
+  let { room, canStart, actor, onRoom = () => {} }: Props = $props();
   let currentRoom = $state<Room>({ id: '', gameVersionId: '', hostUserId: '', hostMemberId: '', title: '', status: 'lobby', maxPlayers: 2, members: [], sequence: 0 });
   let messages = $state<RoomMessage[]>([]);
   let message = $state('');
@@ -14,6 +15,18 @@
   let connected = $state(false);
 
   $effect(() => { currentRoom = room; });
+  let ownMember = $derived(currentRoom.members.find((member) => member.actorKind === actor.kind && member.actorId === actor.id));
+  let currentPlayer = $derived(currentRoom.session?.state.players[currentRoom.session.state.currentPlayerIndex]);
+  let pendingAction = $derived(currentRoom.session?.state.pendingAction);
+  let canRoll = $derived(Boolean(
+    currentRoom.session?.state.status === 'active' &&
+    ownMember?.playerId &&
+    ownMember.playerId === currentPlayer?.id &&
+    !pendingAction
+  ));
+  let canResolveAction = $derived(Boolean(
+    pendingAction && ownMember?.playerId === pendingAction.playerId
+  ));
   function send(value: object) { if (!socket || socket.readyState !== WebSocket.OPEN) { error = 'Realtime connection is unavailable.'; return; } socket.send(JSON.stringify(value)); }
   function submitMessage() { const body = message.trim(); if (!body) return; send({ type: 'chat', body }); message = ''; }
 
@@ -40,11 +53,11 @@
   <div class="top"><div><p class="eyebrow">{connected ? 'LIVE ROOM' : 'RECONNECTING'}</p><h1>{currentRoom.title}</h1><p>{currentRoom.members.length}/{currentRoom.maxPlayers} players · {currentRoom.status}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send({ type: 'start' })}>Start game</button>{/if}</div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <div class="layout">
-    <div class="game"><h2>{currentRoom.session ? `Turn ${currentRoom.session.state.turnNumber}` : 'Waiting in lobby'}</h2>{#if currentRoom.session}<p>Current player: {currentRoom.session.state.players[currentRoom.session.state.currentPlayerIndex]?.name}</p><button onclick={() => send({ type: 'roll' })} disabled={currentRoom.session.state.status !== 'active'}>Roll dice</button><BoardView board={currentRoom.session.definition.board} players={currentRoom.session.state.players} cellStates={currentRoom.session.state.cellStates} />{/if}</div>
+    <div class="game"><h2>{currentRoom.session ? `Turn ${currentRoom.session.state.turnNumber}` : 'Waiting in lobby'}</h2>{#if currentRoom.session}<p>Current player: {currentPlayer?.name}</p>{#if pendingAction}<section class="pending-action"><h3>{pendingAction.title || 'Choose an action'}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send({ type: 'action', actionId: option.id })}>{option.title}</button>{/each}{:else}<p>Waiting for the current player to choose.</p>{/if}</section>{:else if canRoll}<button onclick={() => send({ type: 'roll' })}>Roll dice</button>{:else}<p>Waiting for the current player to roll.</p>{/if}<BoardView board={currentRoom.session.definition.board} players={currentRoom.session.state.players} cellStates={currentRoom.session.state.cellStates} />{/if}</div>
     <aside><h2>Room chat</h2><div class="messages">{#each messages as item (item.id)}<p><strong>{item.displayName}</strong><span>{item.body}</span></p>{/each}</div><form onsubmit={(event) => { event.preventDefault(); submitMessage(); }}><label>Message<input bind:value={message} maxlength="1000" placeholder="Say hello" /></label><button disabled={!message.trim()}>Send</button></form></aside>
   </div>
 </section>
 
 <style>
-  .room-play{width:min(1400px,100%);margin:0 auto}.top{display:flex;justify-content:space-between;gap:1rem;align-items:start}.eyebrow{color:#75d4ff;letter-spacing:.12em;font-size:.72rem;font-weight:800}.top p{color:#aab6d3}.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:1rem}.game,aside{border:1px solid #30415f;border-radius:14px;background:#101a30;padding:1rem}.messages{min-height:260px;max-height:460px;overflow:auto}.messages p{display:grid;gap:.2rem;padding:.55rem 0;border-bottom:1px solid #243652}.messages span{color:#cbd7ef}form{display:grid;gap:.6rem}label{display:grid;gap:.3rem}input{padding:.6rem;border:1px solid #385071;border-radius:8px;background:#0b1224;color:#f1f6ff;font:inherit}.room-play button{border:1px solid #385071;border-radius:8px;padding:.55rem .8rem;background:#14233d;color:#eff5ff;cursor:pointer;font:inherit}.room-play button:disabled{opacity:.55;cursor:not-allowed}.error{padding:.7rem;background:#402034;color:#ffd5df;border-radius:8px}@media(max-width:900px){.layout{grid-template-columns:1fr}.top{display:grid}}
+  .room-play{width:min(1400px,100%);margin:0 auto}.top{display:flex;justify-content:space-between;gap:1rem;align-items:start}.eyebrow{color:#75d4ff;letter-spacing:.12em;font-size:.72rem;font-weight:800}.top p{color:#aab6d3}.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:1rem}.game,aside{border:1px solid #30415f;border-radius:14px;background:#101a30;padding:1rem}.pending-action{display:grid;gap:.6rem;margin:.8rem 0;padding:.8rem;border:1px solid #385071;border-radius:10px;background:#0b1224}.pending-action h3{margin:0}.messages{min-height:260px;max-height:460px;overflow:auto}.messages p{display:grid;gap:.2rem;padding:.55rem 0;border-bottom:1px solid #243652}.messages span{color:#cbd7ef}form{display:grid;gap:.6rem}label{display:grid;gap:.3rem}input{padding:.6rem;border:1px solid #385071;border-radius:8px;background:#0b1224;color:#f1f6ff;font:inherit}.room-play button{border:1px solid #385071;border-radius:8px;padding:.55rem .8rem;background:#14233d;color:#eff5ff;cursor:pointer;font:inherit}.room-play button:disabled{opacity:.55;cursor:not-allowed}.error{padding:.7rem;background:#402034;color:#ffd5df;border-radius:8px}@media(max-width:900px){.layout{grid-template-columns:1fr}.top{display:grid}}
 </style>

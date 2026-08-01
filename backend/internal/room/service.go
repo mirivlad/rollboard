@@ -225,7 +225,7 @@ func (s *Service) Join(ctx context.Context, actor identity.Actor, roomID string)
 	if err != nil {
 		return RoomMember{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET sequence = sequence + 1, updated_at = now() WHERE id = $1`, roomID); err != nil {
 		return RoomMember{}, fmt.Errorf("touch room after join: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -476,7 +476,7 @@ func (s *Service) Mute(ctx context.Context, actor identity.Actor, roomID, member
 	if command.RowsAffected() == 0 {
 		return ErrMemberNotFound
 	}
-	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET sequence = sequence + 1, updated_at = now() WHERE id = $1`, roomID); err != nil {
 		return fmt.Errorf("touch room after mute: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -508,7 +508,7 @@ func (s *Service) Remove(ctx context.Context, actor identity.Actor, roomID, memb
 	if _, err := tx.Exec(ctx, `DELETE FROM room_members WHERE room_id = $1 AND id = $2`, roomID, memberID); err != nil {
 		return fmt.Errorf("remove room member: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET sequence = sequence + 1, updated_at = now() WHERE id = $1`, roomID); err != nil {
 		return fmt.Errorf("touch room after removal: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -126,6 +126,12 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 			return room.Transition{}, startErr
 		}
 		transition = room.Transition{RoomID: started.ID, Sequence: started.Sequence, Session: started.Session}
+		payload, marshalErr := json.Marshal(started)
+		if marshalErr != nil {
+			return room.Transition{}, fmt.Errorf("encode started room snapshot: %w", marshalErr)
+		}
+		clients.broadcast(Envelope{Type: EventRoomState, Sequence: started.Sequence, Payload: payload})
+		return transition, nil
 	case IntentRoll:
 		transition, err = h.service.Roll(ctx, actor, roomID)
 	case IntentAction:
@@ -156,6 +162,25 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 	}
 	clients.broadcast(Envelope{Type: EventRoomEvent, Sequence: transition.Sequence, Payload: payload})
 	return transition, nil
+}
+
+// Refresh broadcasts the latest durable room snapshot after a membership or
+// moderation change made through the HTTP API.
+func (h *Hub) Refresh(ctx context.Context, roomID string) error {
+	clients := h.clientsFor(roomID)
+	clients.mu.Lock()
+	defer clients.mu.Unlock()
+
+	stored, err := h.service.Get(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(stored)
+	if err != nil {
+		return fmt.Errorf("encode refreshed room snapshot: %w", err)
+	}
+	clients.broadcast(Envelope{Type: EventRoomState, Sequence: stored.Sequence, Payload: payload})
+	return nil
 }
 
 func (h *Hub) clientsFor(roomID string) *roomClients {

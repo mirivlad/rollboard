@@ -560,6 +560,7 @@ func (a *API) handleRoomJoin(w http.ResponseWriter, r *http.Request, roomID stri
 		writeRoomError(w, err, "join")
 		return
 	}
+	a.refreshRoom(r.Context(), roomID)
 	writeJSON(w, http.StatusCreated, member)
 }
 
@@ -620,6 +621,7 @@ func (a *API) handleRoomMute(w http.ResponseWriter, r *http.Request, roomID, mem
 		writeRoomError(w, err, "moderate")
 		return
 	}
+	a.refreshRoom(r.Context(), roomID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -643,7 +645,17 @@ func (a *API) handleRoomRemoval(w http.ResponseWriter, r *http.Request, roomID, 
 		writeRoomError(w, err, "moderate")
 		return
 	}
+	a.refreshRoom(r.Context(), roomID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) refreshRoom(ctx context.Context, roomID string) {
+	if a.hub == nil {
+		return
+	}
+	if err := a.hub.Refresh(ctx, roomID); err != nil {
+		log.Printf("refresh room %s after membership change: %v", roomID, err)
+	}
 }
 
 func actorIsRoomMember(actor identity.Actor, members []room.RoomMember) bool {

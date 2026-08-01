@@ -83,6 +83,13 @@ func TestRoomCreateJoinAndModerationAuthorization(t *testing.T) {
 	if joined.RoomID != room.ID || joined.ActorID != memberUser.ID {
 		t.Fatalf("Join() = %#v, want member in room", joined)
 	}
+	afterJoin, err := rooms.Get(ctx, room.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterJoin.Sequence != room.Sequence+1 || len(afterJoin.Members) != 2 {
+		t.Fatalf("room after Join() = %#v, want sequenced membership change", afterJoin)
+	}
 	if _, err := rooms.Join(ctx, member, room.ID); !errors.Is(err, ErrAlreadyMember) {
 		t.Fatalf("second Join() error = %v, want ErrAlreadyMember", err)
 	}
