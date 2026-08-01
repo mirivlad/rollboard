@@ -2,6 +2,7 @@ package room
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -192,7 +193,8 @@ func TestRoomStartPinsPlayersAndRejectsOutOfTurnRoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	started, err := rooms.Start(ctx, host, created.ID)
+	startCommand := Command{ID: "8f4650d1-82c2-4ff2-9b5e-3f90ba2e2c03", Type: "start"}
+	started, err := rooms.StartWithCommand(ctx, host, created.ID, startCommand)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +203,10 @@ func TestRoomStartPinsPlayersAndRejectsOutOfTurnRoll(t *testing.T) {
 	}
 	if started.Members[0].PlayerID == "" || started.Members[1].PlayerID == "" {
 		t.Fatalf("Start() members = %#v, want durable player slots", started.Members)
+	}
+	duplicateStart, err := rooms.StartWithCommand(ctx, host, created.ID, startCommand)
+	if err != nil || !duplicateStart.Duplicate || duplicateStart.Sequence != started.Sequence || duplicateStart.StoredEvent == nil {
+		t.Fatalf("duplicate StartWithCommand() = %#v, err=%v", duplicateStart, err)
 	}
 	if _, err := rooms.Roll(ctx, guest, created.ID); !errors.Is(err, ErrNotYourTurn) {
 		t.Fatalf("guest Roll() error = %v, want ErrNotYourTurn", err)
@@ -293,6 +299,169 @@ func TestRoomRollStoresReplayableEventAndDeduplicatesCommand(t *testing.T) {
 	}
 	if !second.Duplicate || second.Sequence != first.Sequence || second.StoredEvent == nil || second.StoredEvent.Sequence != first.StoredEvent.Sequence {
 		t.Fatalf("duplicate RollWithCommand() = %#v, want original receipt %#v", second, first)
+	}
+}
+
+func TestRoomDuplicateChatStoresOneMessage(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostUser := registerRoomUser(t, ctx, identities, "chat-host@example.com", "Host")
+	guestIdentity, err := identities.CreateGuest(ctx, "Guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogService, err := catalog.NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdGame, err := catalogService.CreateGame(ctx, hostUser.ID, roomDefinition("Chat game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := catalogService.Publish(ctx, hostUser.ID, createdGame.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rooms, err := NewService(pool, catalogService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := identity.Actor{User: &hostUser}
+	guest := identity.Actor{Guest: &guestIdentity}
+	created, err := rooms.Create(ctx, host, version.ID, CreateInput{Title: "Chat room", MaxPlayers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rooms.Join(ctx, guest, created.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	command := Command{ID: "286e7e24-e3da-4f89-8a63-e831f5e9bd81", Type: "chat"}
+	first, err := rooms.SendMessageWithCommand(ctx, guest, created.ID, "hello", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := rooms.SendMessageWithCommand(ctx, guest, created.ID, "hello", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.StoredEvent == nil || !second.Duplicate || second.StoredEvent == nil || second.StoredEvent.Sequence != first.StoredEvent.Sequence {
+		t.Fatalf("chat receipts = %#v and %#v", first, second)
+	}
+	messages, err := rooms.ListMessages(ctx, guest, created.ID, 10)
+	if err != nil || len(messages) != 1 || messages[0].ID != first.ID {
+		t.Fatalf("messages = %#v, err=%v", messages, err)
+	}
+}
+
+func TestRoomDuplicateActionReturnsStoredTransition(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostUser := registerRoomUser(t, ctx, identities, "action-host@example.com", "Host")
+	guestIdentity, err := identities.CreateGuest(ctx, "Guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogService, err := catalog.NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdGame, err := catalogService.CreateGame(ctx, hostUser.ID, roomDefinition("Action game"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := catalogService.Publish(ctx, hostUser.ID, createdGame.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rooms, err := NewService(pool, catalogService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := identity.Actor{User: &hostUser}
+	guest := identity.Actor{Guest: &guestIdentity}
+	created, err := rooms.Create(ctx, host, version.ID, CreateInput{Title: "Action room", MaxPlayers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rooms.Join(ctx, guest, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	started, err := rooms.Start(ctx, host, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started.Session.State.PendingAction = &game.PendingAction{
+		Type: "choice", PlayerID: started.Session.CurrentPlayer().ID,
+		Options: []game.ActionOption{{ID: "continue", Title: "Continue"}},
+	}
+	raw, err := json.Marshal(started.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE rooms SET session_json = $2::jsonb WHERE id = $1`, created.ID, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+
+	command := Command{ID: "d97cc84e-12d5-45a1-8f96-7d377465bafb", Type: "action"}
+	first, err := rooms.ResolveActionWithCommand(ctx, host, created.ID, "continue", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := rooms.ResolveActionWithCommand(ctx, host, created.ID, "continue", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.StoredEvent == nil || !second.Duplicate || second.Sequence != first.Sequence || second.StoredEvent == nil {
+		t.Fatalf("action receipts = %#v and %#v", first, second)
 	}
 }
 

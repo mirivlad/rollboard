@@ -67,6 +67,8 @@ type Room struct {
 	Members       []RoomMember      `json:"members"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	UpdatedAt     time.Time         `json:"updatedAt"`
+	StoredEvent   *StoredEvent      `json:"-"`
+	Duplicate     bool              `json:"-"`
 }
 
 type RoomMember struct {
@@ -81,13 +83,15 @@ type RoomMember struct {
 }
 
 type RoomMessage struct {
-	ID          string    `json:"id"`
-	RoomID      string    `json:"roomId"`
-	MemberID    string    `json:"memberId"`
-	DisplayName string    `json:"displayName"`
-	Body        string    `json:"body"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Sequence    uint64    `json:"sequence"`
+	ID          string       `json:"id"`
+	RoomID      string       `json:"roomId"`
+	MemberID    string       `json:"memberId"`
+	DisplayName string       `json:"displayName"`
+	Body        string       `json:"body"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	Sequence    uint64       `json:"sequence"`
+	StoredEvent *StoredEvent `json:"-"`
+	Duplicate   bool         `json:"-"`
 }
 
 // Transition is an authoritative room state change suitable for realtime broadcast.
@@ -256,6 +260,15 @@ func (s *Service) Join(ctx context.Context, actor identity.Actor, roomID string)
 // Start turns a lobby into a multiplayer session using only its pinned published
 // definition and the currently persisted room members.
 func (s *Service) Start(ctx context.Context, actor identity.Actor, roomID string) (*Room, error) {
+	return s.StartWithCommand(ctx, actor, roomID, Command{})
+}
+
+// StartWithCommand starts a room once for a client command ID and returns the
+// original persisted room snapshot when the command is retried.
+func (s *Service) StartWithCommand(ctx context.Context, actor identity.Actor, roomID string, command Command) (*Room, error) {
+	if err := validateCommand(command, "start"); err != nil {
+		return nil, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin room start: %w", err)
@@ -267,6 +280,21 @@ func (s *Service) Start(ctx context.Context, actor identity.Actor, roomID string
 	stored, err := loadRoom(ctx, tx, roomID, true)
 	if err != nil {
 		return nil, err
+	}
+	if command.ID != "" {
+		receipt, err := commandReceipt(ctx, tx, stored.ID, actorReference(actor), command)
+		if err != nil {
+			return nil, err
+		}
+		if receipt != nil {
+			var duplicate Room
+			if err := json.Unmarshal(receipt.Payload, &duplicate); err != nil {
+				return nil, fmt.Errorf("decode room command receipt: %w", err)
+			}
+			duplicate.StoredEvent = receipt
+			duplicate.Duplicate = true
+			return &duplicate, nil
+		}
 	}
 	if stored.Status != StatusLobby {
 		return nil, ErrRoomNotJoinable
@@ -300,6 +328,16 @@ func (s *Service) Start(ctx context.Context, actor identity.Actor, roomID string
 	if err := persistSession(ctx, tx, stored); err != nil {
 		return nil, err
 	}
+	event, err := recordEvent(ctx, tx, stored.ID, stored.Sequence, "room_state", stored)
+	if err != nil {
+		return nil, err
+	}
+	if command.ID != "" {
+		if err := recordCommandReceipt(ctx, tx, stored.ID, actorReference(actor), command, event); err != nil {
+			return nil, err
+		}
+	}
+	stored.StoredEvent = &event
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit room start: %w", err)
 	}
@@ -385,6 +423,15 @@ func (s *Service) RollWithCommand(ctx context.Context, actor identity.Actor, roo
 
 // ResolveAction resolves the current member's server-side pending choice.
 func (s *Service) ResolveAction(ctx context.Context, actor identity.Actor, roomID, actionID string) (Transition, error) {
+	return s.ResolveActionWithCommand(ctx, actor, roomID, actionID, Command{})
+}
+
+// ResolveActionWithCommand resolves one pending action for a client command ID
+// and returns the original persisted transition on a retry.
+func (s *Service) ResolveActionWithCommand(ctx context.Context, actor identity.Actor, roomID, actionID string, command Command) (Transition, error) {
+	if err := validateCommand(command, "action"); err != nil {
+		return Transition{}, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Transition{}, fmt.Errorf("begin room action: %w", err)
@@ -397,6 +444,21 @@ func (s *Service) ResolveAction(ctx context.Context, actor identity.Actor, roomI
 	member, err := currentMember(actor, stored.Members)
 	if err != nil {
 		return Transition{}, err
+	}
+	if command.ID != "" {
+		receipt, err := commandReceipt(ctx, tx, stored.ID, actorReference(actor), command)
+		if err != nil {
+			return Transition{}, err
+		}
+		if receipt != nil {
+			var transition Transition
+			if err := json.Unmarshal(receipt.Payload, &transition); err != nil {
+				return Transition{}, fmt.Errorf("decode room command receipt: %w", err)
+			}
+			transition.StoredEvent = receipt
+			transition.Duplicate = true
+			return transition, nil
+		}
 	}
 	if stored.Status != StatusActive || stored.Session == nil || stored.Session.State.Status != "active" {
 		return Transition{}, ErrGameNotActive
@@ -418,13 +480,33 @@ func (s *Service) ResolveAction(ctx context.Context, actor identity.Actor, roomI
 	if err := persistSession(ctx, tx, stored); err != nil {
 		return Transition{}, err
 	}
+	transition := Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}
+	event, err := recordEvent(ctx, tx, stored.ID, stored.Sequence, "room_event", transition)
+	if err != nil {
+		return Transition{}, err
+	}
+	if command.ID != "" {
+		if err := recordCommandReceipt(ctx, tx, stored.ID, actorReference(actor), command, event); err != nil {
+			return Transition{}, err
+		}
+	}
+	transition.StoredEvent = &event
 	if err := tx.Commit(ctx); err != nil {
 		return Transition{}, fmt.Errorf("commit room action: %w", err)
 	}
-	return Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}, nil
+	return transition, nil
 }
 
 func (s *Service) SendMessage(ctx context.Context, actor identity.Actor, roomID, body string) (RoomMessage, error) {
+	return s.SendMessageWithCommand(ctx, actor, roomID, body, Command{})
+}
+
+// SendMessageWithCommand stores a room chat message once for a client command
+// ID and returns the original persisted message when the command is retried.
+func (s *Service) SendMessageWithCommand(ctx context.Context, actor identity.Actor, roomID, body string, command Command) (RoomMessage, error) {
+	if err := validateCommand(command, "chat"); err != nil {
+		return RoomMessage{}, err
+	}
 	body = strings.TrimSpace(body)
 	if len([]rune(body)) < 1 || len([]rune(body)) > 1000 {
 		return RoomMessage{}, ErrInvalidMessage
@@ -445,6 +527,21 @@ func (s *Service) SendMessage(ctx context.Context, actor identity.Actor, roomID,
 	if err != nil {
 		return RoomMessage{}, err
 	}
+	if command.ID != "" {
+		receipt, err := commandReceipt(ctx, tx, roomID, actorReference(actor), command)
+		if err != nil {
+			return RoomMessage{}, err
+		}
+		if receipt != nil {
+			var message RoomMessage
+			if err := json.Unmarshal(receipt.Payload, &message); err != nil {
+				return RoomMessage{}, fmt.Errorf("decode room command receipt: %w", err)
+			}
+			message.StoredEvent = receipt
+			message.Duplicate = true
+			return message, nil
+		}
+	}
 	if member.MutedAt != nil {
 		return RoomMessage{}, ErrMemberMuted
 	}
@@ -461,6 +558,16 @@ func (s *Service) SendMessage(ctx context.Context, actor identity.Actor, roomID,
 	if err := tx.QueryRow(ctx, `UPDATE rooms SET sequence = sequence + 1, updated_at = now() WHERE id = $1 RETURNING sequence`, roomID).Scan(&message.Sequence); err != nil {
 		return RoomMessage{}, fmt.Errorf("sequence chat message: %w", err)
 	}
+	event, err := recordEvent(ctx, tx, roomID, message.Sequence, "chat_message", message)
+	if err != nil {
+		return RoomMessage{}, err
+	}
+	if command.ID != "" {
+		if err := recordCommandReceipt(ctx, tx, roomID, actorReference(actor), command, event); err != nil {
+			return RoomMessage{}, err
+		}
+	}
+	message.StoredEvent = &event
 	if err := tx.Commit(ctx); err != nil {
 		return RoomMessage{}, fmt.Errorf("commit chat message: %w", err)
 	}
