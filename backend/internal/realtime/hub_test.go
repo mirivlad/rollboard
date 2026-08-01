@@ -66,6 +66,43 @@ func TestHubBroadcastsOneOrderedTransitionAndRejectsOutOfTurnRoll(t *testing.T) 
 	assertNoEnvelope(t, guestClient)
 }
 
+func TestHubBroadcastsPersistedChatMessage(t *testing.T) {
+	user := identity.User{ID: "host-id", DisplayName: "Host"}
+	guest := identity.Guest{ID: "guest-id", DisplayName: "Guest"}
+	service := &fakeRoomService{
+		room: &room.Room{ID: "room-id", Sequence: 8, Members: []room.RoomMember{
+			{ActorKind: "user", ActorID: user.ID}, {ActorKind: "guest", ActorID: guest.ID},
+		}},
+		chat: room.RoomMessage{ID: "message-id", RoomID: "room-id", Body: "Hello", DisplayName: guest.DisplayName, Sequence: 9},
+	}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{User: &user}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostClient.Close()
+	guestClient, err := hub.Connect(context.Background(), "room-id", identity.Actor{Guest: &guest}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestClient.Close()
+	receiveEnvelope(t, hostClient)
+	receiveEnvelope(t, guestClient)
+
+	if _, err := hub.Submit(context.Background(), "room-id", identity.Actor{Guest: &guest}, Intent{Type: IntentChat, Body: "Hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if event := receiveEnvelope(t, hostClient); event.Type != EventChatMessage || event.Sequence != 9 {
+		t.Fatalf("host chat event = %#v, want persisted chat broadcast", event)
+	}
+	if event := receiveEnvelope(t, guestClient); event.Type != EventChatMessage || event.Sequence != 9 {
+		t.Fatalf("guest chat event = %#v, want persisted chat broadcast", event)
+	}
+}
+
 func receiveEnvelope(t *testing.T, client *Client) Envelope {
 	t.Helper()
 	select {
@@ -90,6 +127,7 @@ type fakeRoomService struct {
 	room       *room.Room
 	transition room.Transition
 	rollCalls  int
+	chat       room.RoomMessage
 }
 
 func (f *fakeRoomService) Get(context.Context, string) (*room.Room, error) { return f.room, nil }
@@ -108,4 +146,8 @@ func (f *fakeRoomService) Roll(_ context.Context, actor identity.Actor, _ string
 
 func (f *fakeRoomService) ResolveAction(context.Context, identity.Actor, string, string) (room.Transition, error) {
 	return f.transition, nil
+}
+
+func (f *fakeRoomService) SendMessage(context.Context, identity.Actor, string, string) (room.RoomMessage, error) {
+	return f.chat, nil
 }

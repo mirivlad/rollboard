@@ -95,12 +95,32 @@ func TestRoomCreateJoinAndModerationAuthorization(t *testing.T) {
 	if err := rooms.Mute(ctx, host, room.ID, joined.ID, true); err != nil {
 		t.Fatalf("host Mute() error = %v", err)
 	}
+	if _, err := rooms.SendMessage(ctx, member, room.ID, "Muted message"); !errors.Is(err, ErrMemberMuted) {
+		t.Fatalf("muted SendMessage() error = %v, want ErrMemberMuted", err)
+	}
+	if err := rooms.Mute(ctx, host, room.ID, joined.ID, false); err != nil {
+		t.Fatalf("host unmute() error = %v", err)
+	}
+	message, err := rooms.SendMessage(ctx, member, room.ID, "  Hello room  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Body != "Hello room" || message.MemberID != joined.ID {
+		t.Fatalf("SendMessage() = %#v, want persisted normalized message", message)
+	}
+	messages, err := rooms.ListMessages(ctx, member, room.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].ID != message.ID {
+		t.Fatalf("ListMessages() = %#v, want persisted room message", messages)
+	}
 	stored, err := rooms.Get(ctx, room.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.HostMemberID != room.HostMemberID || len(stored.Members) != 2 || stored.Members[1].MutedAt == nil {
-		t.Fatalf("Get() = %#v, want persisted members and muted state", stored)
+	if stored.HostMemberID != room.HostMemberID || len(stored.Members) != 2 || stored.Members[1].MutedAt != nil {
+		t.Fatalf("Get() = %#v, want persisted members and unmuted state", stored)
 	}
 	if err := rooms.Remove(ctx, member, room.ID, room.HostMemberID); !errors.Is(err, ErrNotHost) {
 		t.Fatalf("member Remove() error = %v, want ErrNotHost", err)

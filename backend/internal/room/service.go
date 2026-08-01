@@ -33,6 +33,8 @@ var (
 	ErrNotYourTurn         = errors.New("it is not this actor's turn")
 	ErrPendingAction       = errors.New("a pending action must be resolved first")
 	ErrNoPendingAction     = errors.New("there is no pending action")
+	ErrMemberMuted         = errors.New("room member is muted")
+	ErrInvalidMessage      = errors.New("chat message must contain 1 to 1000 characters")
 )
 
 const (
@@ -75,6 +77,16 @@ type RoomMember struct {
 	DisplayName string     `json:"displayName"`
 	MutedAt     *time.Time `json:"mutedAt,omitempty"`
 	JoinedAt    time.Time  `json:"joinedAt"`
+}
+
+type RoomMessage struct {
+	ID          string    `json:"id"`
+	RoomID      string    `json:"roomId"`
+	MemberID    string    `json:"memberId"`
+	DisplayName string    `json:"displayName"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Sequence    uint64    `json:"sequence"`
 }
 
 // Transition is an authoritative room state change suitable for realtime broadcast.
@@ -356,6 +368,93 @@ func (s *Service) ResolveAction(ctx context.Context, actor identity.Actor, roomI
 		return Transition{}, fmt.Errorf("commit room action: %w", err)
 	}
 	return Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}, nil
+}
+
+func (s *Service) SendMessage(ctx context.Context, actor identity.Actor, roomID, body string) (RoomMessage, error) {
+	body = strings.TrimSpace(body)
+	if len([]rune(body)) < 1 || len([]rune(body)) > 1000 {
+		return RoomMessage{}, ErrInvalidMessage
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RoomMessage{}, fmt.Errorf("begin chat message: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := loadRoom(ctx, tx, roomID, true); err != nil {
+		return RoomMessage{}, err
+	}
+	members, err := listMembers(ctx, tx, roomID)
+	if err != nil {
+		return RoomMessage{}, err
+	}
+	member, err := currentMember(actor, members)
+	if err != nil {
+		return RoomMessage{}, err
+	}
+	if member.MutedAt != nil {
+		return RoomMessage{}, ErrMemberMuted
+	}
+	var message RoomMessage
+	err = tx.QueryRow(ctx, `
+		INSERT INTO room_messages (room_id, member_id, body)
+		VALUES ($1, $2, $3)
+		RETURNING id::text, room_id::text, member_id::text, body, created_at`, roomID, member.ID, body).
+		Scan(&message.ID, &message.RoomID, &message.MemberID, &message.Body, &message.CreatedAt)
+	if err != nil {
+		return RoomMessage{}, fmt.Errorf("insert chat message: %w", err)
+	}
+	message.DisplayName = member.DisplayName
+	if err := tx.QueryRow(ctx, `UPDATE rooms SET sequence = sequence + 1, updated_at = now() WHERE id = $1 RETURNING sequence`, roomID).Scan(&message.Sequence); err != nil {
+		return RoomMessage{}, fmt.Errorf("sequence chat message: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RoomMessage{}, fmt.Errorf("commit chat message: %w", err)
+	}
+	return message, nil
+}
+
+func (s *Service) ListMessages(ctx context.Context, actor identity.Actor, roomID string, limit int) ([]RoomMessage, error) {
+	stored, err := s.Get(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := currentMember(actor, stored.Members); err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, room_id, member_id, display_name, body, created_at
+		FROM (
+			SELECT messages.id::text AS id, messages.room_id::text AS room_id, messages.member_id::text AS member_id,
+				members.display_name, messages.body, messages.created_at
+			FROM room_messages AS messages
+			JOIN room_members AS members ON members.id = messages.member_id
+			WHERE messages.room_id = $1
+			ORDER BY messages.created_at DESC, messages.id DESC
+			LIMIT $2
+		) AS latest
+		ORDER BY created_at, id`, roomID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list chat messages: %w", err)
+	}
+	defer rows.Close()
+	messages := make([]RoomMessage, 0)
+	for rows.Next() {
+		var message RoomMessage
+		if err := rows.Scan(&message.ID, &message.RoomID, &message.MemberID, &message.DisplayName, &message.Body, &message.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan chat message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate chat messages: %w", err)
+	}
+	return messages, nil
 }
 
 func (s *Service) Mute(ctx context.Context, actor identity.Actor, roomID, memberID string, muted bool) error {

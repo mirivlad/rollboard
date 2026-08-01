@@ -50,6 +50,7 @@ type RoomService interface {
 	Join(context.Context, identity.Actor, string) (room.RoomMember, error)
 	Mute(context.Context, identity.Actor, string, string, bool) error
 	Remove(context.Context, identity.Actor, string, string) error
+	ListMessages(context.Context, identity.Actor, string, int) ([]room.RoomMessage, error)
 }
 
 type guestClaimer interface {
@@ -498,6 +499,10 @@ func (a *API) handleRoomByID(w http.ResponseWriter, r *http.Request) {
 		a.handleRoomWebSocket(w, r, roomID)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "messages" {
+		a.handleRoomMessages(w, r, roomID)
+		return
+	}
 	if len(parts) == 4 && parts[1] == "members" && parts[3] == "mute" {
 		a.handleRoomMute(w, r, roomID, parts[2])
 		return
@@ -556,6 +561,36 @@ func (a *API) handleRoomJoin(w http.ResponseWriter, r *http.Request, roomID stri
 		return
 	}
 	writeJSON(w, http.StatusCreated, member)
+}
+
+func (a *API) handleRoomMessages(w http.ResponseWriter, r *http.Request, roomID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
+		return
+	}
+	if a.rooms == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "room service not ready", "try again later")
+		return
+	}
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, http.StatusBadRequest, "INVALID_LIMIT", "invalid message limit", "use a value from 1 to 100")
+			return
+		}
+		limit = parsed
+	}
+	messages, err := a.rooms.ListMessages(r.Context(), *actor, roomID, limit)
+	if err != nil {
+		writeRoomError(w, err, "load messages for")
+		return
+	}
+	writeJSON(w, http.StatusOK, messages)
 }
 
 func (a *API) handleRoomMute(w http.ResponseWriter, r *http.Request, roomID, memberID string) {

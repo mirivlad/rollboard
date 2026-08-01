@@ -13,12 +13,14 @@ import (
 )
 
 const (
-	EventRoomState = "room_state"
-	EventRoomEvent = "room_event"
+	EventRoomState   = "room_state"
+	EventRoomEvent   = "room_event"
+	EventChatMessage = "chat_message"
 
 	IntentStart  = "start"
 	IntentRoll   = "roll"
 	IntentAction = "action"
+	IntentChat   = "chat"
 )
 
 var (
@@ -31,11 +33,13 @@ type RoomService interface {
 	Start(context.Context, identity.Actor, string) (*room.Room, error)
 	Roll(context.Context, identity.Actor, string) (room.Transition, error)
 	ResolveAction(context.Context, identity.Actor, string, string) (room.Transition, error)
+	SendMessage(context.Context, identity.Actor, string, string) (room.RoomMessage, error)
 }
 
 type Intent struct {
 	Type     string `json:"type"`
 	ActionID string `json:"actionId,omitempty"`
+	Body     string `json:"body,omitempty"`
 }
 
 type Envelope struct {
@@ -129,6 +133,17 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 			return room.Transition{}, fmt.Errorf("%w: action ID is required", ErrUnsupportedIntent)
 		}
 		transition, err = h.service.ResolveAction(ctx, actor, roomID, intent.ActionID)
+	case IntentChat:
+		message, messageErr := h.service.SendMessage(ctx, actor, roomID, intent.Body)
+		if messageErr != nil {
+			return room.Transition{}, messageErr
+		}
+		payload, err := json.Marshal(message)
+		if err != nil {
+			return room.Transition{}, fmt.Errorf("encode chat message: %w", err)
+		}
+		clients.broadcast(Envelope{Type: EventChatMessage, Sequence: message.Sequence, Payload: payload})
+		return room.Transition{RoomID: roomID, Sequence: message.Sequence}, nil
 	default:
 		return room.Transition{}, fmt.Errorf("%w: %s", ErrUnsupportedIntent, intent.Type)
 	}
