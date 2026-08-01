@@ -3,6 +3,7 @@
   import type { Room, RoomMessage } from '../lib/types';
   import { api } from '../lib/api';
   import { confirmedRollPlayback, type RollPlayback } from '../lib/room-events';
+  import { acceptsRoomSequence } from '../lib/room-sequence';
   import BoardView from './BoardView.svelte';
 
   type Actor = { kind: 'user' | 'guest'; id: string };
@@ -20,8 +21,12 @@
   let lastRoll = $state<RollPlayback | null>(null);
   let rolling = $state(false);
   let playbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let latestRoomSequence = $state(0);
 
-  $effect(() => { currentRoom = room; });
+  $effect(() => {
+    currentRoom = room;
+    latestRoomSequence = Math.max(latestRoomSequence, room.sequence);
+  });
   let ownMember = $derived(currentRoom.members.find((member) => member.actorKind === actor.kind && member.actorId === actor.id));
   let currentPlayer = $derived(currentRoom.session?.state.players[currentRoom.session.state.currentPlayerIndex]);
   let pendingAction = $derived(currentRoom.session?.state.pendingAction);
@@ -87,6 +92,11 @@
     return true;
   }
   function rollDice() { error = ''; rolling = send({ type: 'roll' }); }
+  function acceptsIncomingRoom(envelope: { sequence?: unknown }) {
+    if (!acceptsRoomSequence(latestRoomSequence, envelope.sequence)) return false;
+    latestRoomSequence = envelope.sequence;
+    return true;
+  }
   function submitMessage() { const body = message.trim(); if (!body) return; send({ type: 'chat', body }); message = ''; }
   async function refreshRoom() { currentRoom = await api.getRoom(currentRoom.id); onRoom(currentRoom); }
   async function muteMember(memberID: string, muted: boolean) { error = ''; try { await api.muteRoomMember(currentRoom.id, memberID, muted); await refreshRoom(); } catch (cause) { error = cause instanceof Error ? `Moderation failed: ${cause.message}` : 'Moderation failed.'; } }
@@ -102,8 +112,8 @@
     ws.onerror = () => error = 'Realtime connection was interrupted.';
     ws.onmessage = (event) => {
       const envelope = JSON.parse(event.data);
-      if (envelope.type === 'room_state') { currentRoom = envelope.payload; onRoom(currentRoom); }
-      if (envelope.type === 'room_event' && envelope.payload?.session) {
+      if (envelope.type === 'room_state' && acceptsIncomingRoom(envelope)) { currentRoom = envelope.payload; onRoom(currentRoom); }
+      if (envelope.type === 'room_event' && envelope.payload?.session && acceptsIncomingRoom(envelope)) {
         const nextRoom = { ...currentRoom, sequence: envelope.sequence, status: envelope.payload.session.state.status, session: envelope.payload.session };
         const playback = confirmedRollPlayback(envelope.payload.events ?? []);
         if (playback && currentRoom.session) startPlayback(nextRoom, playback);

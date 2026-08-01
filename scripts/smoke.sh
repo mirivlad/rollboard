@@ -28,6 +28,11 @@ for attempt in $(seq 1 30); do
   if [ "$attempt" -eq 30 ]; then exit 1; fi
   sleep 1
 done
+for attempt in $(seq 1 30); do
+  if docker compose exec -T redis redis-cli ping >/dev/null 2>&1; then break; fi
+  if [ "$attempt" -eq 30 ]; then exit 1; fi
+  sleep 1
+done
 
 (cd backend && go build -o /tmp/rollboard-server-smoke ./cmd/server)
 ROLLBOARD_ADDR="$ADDR" ROLLBOARD_DATABASE_URL="$DATABASE_URL" /tmp/rollboard-server-smoke > /tmp/rollboard-server.log 2>&1 &

@@ -100,14 +100,17 @@ User clicks Roll → POST /api/sessions/:id/roll
 
 Online rooms use the same generic engine, but their client sends a WebSocket
 intent (`start`, `roll`, `action`, `chat`) rather than a rule result. PostgreSQL
-locks and persists the room snapshot before the in-process hub broadcasts a
-monotonic sequence. A room references `game_versions.id`, never a mutable draft.
+locks and persists the room snapshot before the hub publishes a monotonic
+sequence. Redis Pub/Sub distributes that accepted snapshot, transition or chat
+event to the local hubs of every application replica. A room references
+`game_versions.id`, never a mutable draft. Redis is not an authority: reconnects
+always load the latest PostgreSQL snapshot.
 
 ## Implementation boundaries
 
-Redis is included in the Docker/Portainer deployment but is not yet used for
-cross-process fan-out or presence. Invite links, command idempotency receipts and
-event replay are planned; this document does not claim them as implemented.
+Redis is used only for cross-process fan-out. Presence, command idempotency
+receipts and durable event replay are planned; this document does not claim them
+as implemented.
 
 ### Mini-game extension boundary
 

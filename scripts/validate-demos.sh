@@ -3,7 +3,7 @@
 #
 # Usage:  ./scripts/validate-demos.sh
 #
-# Starts the backend on a random port with the dedicated PostgreSQL test DB,
+# Starts the backend on a random port with the dedicated PostgreSQL test DB and Redis,
 # POSTs each demo, calls the validate endpoint, and cleans up.
 
 set -euo pipefail
@@ -14,7 +14,9 @@ FAIL=0
 PORT=$(( (RANDOM % 1000) + 9000 ))
 ADDR="127.0.0.1:${PORT}"
 DATABASE_URL="postgres://rollboard:rollboard@127.0.0.1:5432/rollboard_test?sslmode=disable"
+REDIS_URL="redis://127.0.0.1:6379/0"
 BACKEND_PID=""
+SERVER_BIN=""
 COOKIE_JAR="$(mktemp)"
 
 cleanup() {
@@ -28,15 +30,26 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "=== Demo Validation Check ==="
-echo "Starting backend on $ADDR (PostgreSQL test DB)..."
+echo "Starting backend on $ADDR (PostgreSQL test DB and Redis)..."
 
-docker compose --project-directory "$ROOT" up --detach postgres >/dev/null
+docker compose --project-directory "$ROOT" up --detach postgres redis >/dev/null
 for i in $(seq 1 30); do
   if docker compose --project-directory "$ROOT" exec -T postgres pg_isready -U rollboard -d rollboard_test >/dev/null 2>&1; then
     break
   fi
   if [ "$i" -eq 30 ]; then
     echo "  FAIL: PostgreSQL test database did not become ready"
+    exit 1
+  fi
+  sleep 1
+done
+
+for i in $(seq 1 30); do
+  if docker compose --project-directory "$ROOT" exec -T redis redis-cli ping >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "  FAIL: Redis did not become ready"
     exit 1
   fi
   sleep 1
@@ -49,7 +62,7 @@ go build -o "$SERVER_BIN" ./cmd/server/
 cd "$ROOT"
 
 # Run directly (no go wrapper) so kill works properly
-ROLLBOARD_DATABASE_URL="$DATABASE_URL" "$SERVER_BIN" -addr "$ADDR" &
+ROLLBOARD_DATABASE_URL="$DATABASE_URL" ROLLBOARD_REDIS_URL="$REDIS_URL" "$SERVER_BIN" -addr "$ADDR" &
 BACKEND_PID=$!
 
 # Wait for server to start

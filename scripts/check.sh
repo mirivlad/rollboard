@@ -7,6 +7,9 @@ cd "$ROOT/backend"
 go vet ./...
 go test ./... -count=1
 
+echo "=== Verifying Redis realtime fan-out ==="
+"$ROOT/scripts/test-realtime-redis.sh"
+
 echo ""
 echo "=== Running frontend checks ==="
 cd "$ROOT/frontend"

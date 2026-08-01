@@ -53,10 +53,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create room service: %v", err)
 	}
-	realtimeHub, err := realtime.NewHub(roomService)
+	realtimeBackplane, err := realtime.NewRedisBackplane(context.Background(), cfg.RedisURL)
 	if err != nil {
+		log.Fatalf("failed to connect realtime backplane: %v", err)
+	}
+	realtimeHub, err := realtime.NewHub(roomService, realtime.WithBackplane(realtimeBackplane))
+	if err != nil {
+		_ = realtimeBackplane.Close()
 		log.Fatalf("failed to create realtime hub: %v", err)
 	}
+	defer realtimeHub.Close()
 	appOrigin, err := url.Parse(cfg.AppOrigin)
 	if err != nil {
 		log.Fatalf("invalid application origin: %v", err)

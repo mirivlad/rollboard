@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,6 +67,119 @@ func TestHubBroadcastsOneOrderedTransitionAndRejectsOutOfTurnRoll(t *testing.T) 
 	}
 	assertNoEnvelope(t, hostClient)
 	assertNoEnvelope(t, guestClient)
+}
+
+func TestHubsBroadcastTransitionsAcrossReplicas(t *testing.T) {
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	guest := identity.Guest{ID: "guest-id", DisplayName: "Guest"}
+	stored := &room.Room{ID: "room-id", Status: room.StatusActive, Sequence: 4, Members: []room.RoomMember{
+		{ID: "host-member", ActorKind: "user", ActorID: host.ID, PlayerID: "player_1", DisplayName: host.DisplayName},
+		{ID: "guest-member", ActorKind: "guest", ActorID: guest.ID, PlayerID: "player_2", DisplayName: guest.DisplayName},
+	}}
+	transition := room.Transition{RoomID: "room-id", Sequence: 5, Session: &game.GameSession{ID: "session-id", State: game.GameState{Status: "active"}}}
+	backplane := newMemoryBackplane()
+	primary, err := NewHub(&fakeRoomService{room: stored, transition: transition}, WithBackplane(backplane))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	replica, err := NewHub(&fakeRoomService{room: stored, transition: transition}, WithBackplane(backplane))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replica.Close()
+
+	hostClient, err := primary.Connect(context.Background(), "room-id", identity.Actor{User: &host}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostClient.Close()
+	guestClient, err := replica.Connect(context.Background(), "room-id", identity.Actor{Guest: &guest}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestClient.Close()
+	receiveEnvelope(t, hostClient)
+	receiveEnvelope(t, guestClient)
+
+	if _, err := primary.Submit(context.Background(), "room-id", identity.Actor{User: &host}, Intent{Type: IntentRoll}); err != nil {
+		t.Fatal(err)
+	}
+	hostEvent := receiveEnvelope(t, hostClient)
+	guestEvent := receiveEnvelope(t, guestClient)
+	if hostEvent.Type != EventRoomEvent || hostEvent.Sequence != 5 || !reflect.DeepEqual(hostEvent, guestEvent) {
+		t.Fatalf("replica events = %#v and %#v, want the same sequenced transition", hostEvent, guestEvent)
+	}
+	assertNoEnvelope(t, hostClient)
+	assertNoEnvelope(t, guestClient)
+}
+
+func TestHubsBroadcastTransitionsThroughRedis(t *testing.T) {
+	redisURL := os.Getenv("ROLLBOARD_TEST_REDIS_URL")
+	if redisURL == "" {
+		t.Skip("ROLLBOARD_TEST_REDIS_URL is required")
+	}
+	host := identity.User{ID: "host-id", DisplayName: "Host"}
+	guest := identity.Guest{ID: "guest-id", DisplayName: "Guest"}
+	stored := &room.Room{ID: "redis-room-id", Status: room.StatusActive, Sequence: 4, Members: []room.RoomMember{
+		{ID: "host-member", ActorKind: "user", ActorID: host.ID, PlayerID: "player_1", DisplayName: host.DisplayName},
+		{ID: "guest-member", ActorKind: "guest", ActorID: guest.ID, PlayerID: "player_2", DisplayName: guest.DisplayName},
+	}}
+	transition := room.Transition{RoomID: stored.ID, Sequence: 5, Session: &game.GameSession{ID: "session-id", State: game.GameState{Status: "active"}}}
+	primaryBackplane, err := NewRedisBackplane(context.Background(), redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary, err := NewHub(&fakeRoomService{room: stored, transition: transition}, WithBackplane(primaryBackplane))
+	if err != nil {
+		_ = primaryBackplane.Close()
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	replicaBackplane, err := NewRedisBackplane(context.Background(), redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replica, err := NewHub(&fakeRoomService{room: stored, transition: transition}, WithBackplane(replicaBackplane))
+	if err != nil {
+		_ = replicaBackplane.Close()
+		t.Fatal(err)
+	}
+	defer replica.Close()
+
+	hostClient, err := primary.Connect(context.Background(), stored.ID, identity.Actor{User: &host}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostClient.Close()
+	guestClient, err := replica.Connect(context.Background(), stored.ID, identity.Actor{Guest: &guest}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guestClient.Close()
+	receiveEnvelope(t, hostClient)
+	receiveEnvelope(t, guestClient)
+
+	if _, err := primary.Submit(context.Background(), stored.ID, identity.Actor{User: &host}, Intent{Type: IntentRoll}); err != nil {
+		t.Fatal(err)
+	}
+	hostEvent := receiveEnvelope(t, hostClient)
+	guestEvent := receiveEnvelope(t, guestClient)
+	if hostEvent.Type != EventRoomEvent || hostEvent.Sequence != 5 || !reflect.DeepEqual(hostEvent, guestEvent) {
+		t.Fatalf("Redis replica events = %#v and %#v, want the same sequenced transition", hostEvent, guestEvent)
+	}
+	assertNoEnvelope(t, hostClient)
+	assertNoEnvelope(t, guestClient)
+
+	stored.Sequence = 6
+	stored.Members = stored.Members[:1]
+	if err := primary.Refresh(context.Background(), stored.ID); err != nil {
+		t.Fatal(err)
+	}
+	if event := receiveEnvelope(t, hostClient); event.Type != EventRoomState || event.Sequence != 6 {
+		t.Fatalf("host refresh event = %#v, want room state sequence 6", event)
+	}
+	assertClientClosed(t, guestClient)
 }
 
 func TestHubBroadcastsPersistedChatMessage(t *testing.T) {
@@ -246,6 +361,46 @@ type fakeRoomService struct {
 	rollCalls  int
 	chat       room.RoomMessage
 }
+
+type memoryBackplane struct {
+	mu          sync.Mutex
+	nextID      int
+	subscribers map[int]func(BackplaneEvent)
+}
+
+func newMemoryBackplane() *memoryBackplane {
+	return &memoryBackplane{subscribers: make(map[int]func(BackplaneEvent))}
+}
+
+func (b *memoryBackplane) Publish(_ context.Context, event BackplaneEvent) error {
+	b.mu.Lock()
+	callbacks := make([]func(BackplaneEvent), 0, len(b.subscribers))
+	for _, callback := range b.subscribers {
+		callbacks = append(callbacks, callback)
+	}
+	b.mu.Unlock()
+	for _, callback := range callbacks {
+		go callback(event)
+	}
+	return nil
+}
+
+func (b *memoryBackplane) Subscribe(ctx context.Context, callback func(BackplaneEvent)) error {
+	b.mu.Lock()
+	id := b.nextID
+	b.nextID++
+	b.subscribers[id] = callback
+	b.mu.Unlock()
+	go func() {
+		<-ctx.Done()
+		b.mu.Lock()
+		delete(b.subscribers, id)
+		b.mu.Unlock()
+	}()
+	return nil
+}
+
+func (b *memoryBackplane) Close() error { return nil }
 
 func (f *fakeRoomService) Get(context.Context, string) (*room.Room, error) { return f.room, nil }
 

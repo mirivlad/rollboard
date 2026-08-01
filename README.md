@@ -196,7 +196,7 @@ Actions can:
 ## Current limitations
 
 - The author dashboard reloads private drafts and owned published versions. Public catalog discovery/search and shareable invite links are still planned.
-- The realtime hub is single-process. Redis is provisioned by Docker/Portainer, but cross-replica fan-out, presence and command idempotency are not implemented yet.
+- Redis Pub/Sub fans accepted room snapshots, transitions and chat events out to every app replica. Presence, command idempotency and durable event replay are not implemented yet; reconnects load the current PostgreSQL snapshot.
 - Browser verification covers two simultaneous clients creating/joining a room, live roster updates, starting, rolling, resolving a purchase choice and room chat; wider responsive-device coverage is still required before release.
 - No bot players — all players must be human.
 - No image file uploads — image URLs only
