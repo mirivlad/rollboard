@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"rollboard/internal/game"
+	"rollboard/internal/testdb"
 )
 
 func TestStoreRoundTripsGameAndSession(t *testing.T) {
@@ -72,6 +73,11 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("New() error = %v", err)
 	}
 	t.Cleanup(store.Close)
+	release, err := testdb.AcquireExclusive(context.Background(), store.pool)
+	if err != nil {
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(release)
 	if _, err := store.pool.Exec(context.Background(), `TRUNCATE sessions, games CASCADE`); err != nil {
 		t.Fatalf("clear test tables: %v", err)
 	}

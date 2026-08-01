@@ -1,0 +1,353 @@
+// Package room persists multiplayer lobbies and their membership.
+package room
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"rollboard/internal/catalog"
+	"rollboard/internal/game"
+	"rollboard/internal/identity"
+)
+
+var (
+	ErrNotFound            = errors.New("room not found")
+	ErrGameVersionNotFound = errors.New("published game version not found")
+	ErrAccountRequired     = errors.New("account is required")
+	ErrAlreadyMember       = errors.New("actor is already a room member")
+	ErrRoomFull            = errors.New("room is full")
+	ErrRoomNotJoinable     = errors.New("room is not accepting new members")
+	ErrNotHost             = errors.New("host permission is required")
+	ErrMemberNotFound      = errors.New("room member not found")
+	ErrCannotRemoveHost    = errors.New("host cannot be removed")
+)
+
+const (
+	StatusLobby    = "lobby"
+	StatusActive   = "active"
+	StatusFinished = "finished"
+)
+
+type Service struct {
+	pool    *pgxpool.Pool
+	catalog *catalog.Service
+}
+
+type CreateInput struct {
+	Title      string
+	MaxPlayers int16
+}
+
+type Room struct {
+	ID            string            `json:"id"`
+	GameVersionID string            `json:"gameVersionId"`
+	HostUserID    string            `json:"hostUserId"`
+	HostMemberID  string            `json:"hostMemberId"`
+	Title         string            `json:"title"`
+	MaxPlayers    int16             `json:"maxPlayers"`
+	Status        string            `json:"status"`
+	Sequence      uint64            `json:"sequence"`
+	Session       *game.GameSession `json:"session,omitempty"`
+	Members       []RoomMember      `json:"members"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	UpdatedAt     time.Time         `json:"updatedAt"`
+}
+
+type RoomMember struct {
+	ID          string     `json:"id"`
+	RoomID      string     `json:"roomId"`
+	ActorKind   string     `json:"actorKind"`
+	ActorID     string     `json:"actorId"`
+	DisplayName string     `json:"displayName"`
+	MutedAt     *time.Time `json:"mutedAt,omitempty"`
+	JoinedAt    time.Time  `json:"joinedAt"`
+}
+
+func NewService(pool *pgxpool.Pool, catalogService *catalog.Service) (*Service, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("room service requires a PostgreSQL pool")
+	}
+	if catalogService == nil {
+		return nil, fmt.Errorf("room service requires a catalog service")
+	}
+	return &Service{pool: pool, catalog: catalogService}, nil
+}
+
+func (s *Service) Create(ctx context.Context, host identity.Actor, gameVersionID string, input CreateInput) (Room, error) {
+	if host.User == nil {
+		return Room{}, ErrAccountRequired
+	}
+	if err := validateCreateInput(&input); err != nil {
+		return Room{}, err
+	}
+	version, err := s.catalog.GetVersionByID(ctx, gameVersionID)
+	if err != nil {
+		return Room{}, fmt.Errorf("load game version: %w", err)
+	}
+	if version == nil {
+		return Room{}, ErrGameVersionNotFound
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Room{}, fmt.Errorf("begin room creation: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var created Room
+	err = tx.QueryRow(ctx, `
+		INSERT INTO rooms (game_version_id, host_user_id, title, max_players)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id::text, game_version_id::text, host_user_id::text, title, max_players, status, sequence, created_at, updated_at`,
+		version.ID, host.User.ID, input.Title, input.MaxPlayers).
+		Scan(&created.ID, &created.GameVersionID, &created.HostUserID, &created.Title, &created.MaxPlayers, &created.Status, &created.Sequence, &created.CreatedAt, &created.UpdatedAt)
+	if err != nil {
+		return Room{}, fmt.Errorf("insert room: %w", err)
+	}
+	hostMember, err := insertMember(ctx, tx, created.ID, actorReference(host))
+	if err != nil {
+		return Room{}, err
+	}
+	created.HostMemberID = hostMember.ID
+	created.Members = []RoomMember{hostMember}
+	if err := tx.Commit(ctx); err != nil {
+		return Room{}, fmt.Errorf("commit room creation: %w", err)
+	}
+	return created, nil
+}
+
+func (s *Service) Get(ctx context.Context, roomID string) (*Room, error) {
+	var room Room
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, game_version_id::text, host_user_id::text, title, max_players, status, sequence, session_json, created_at, updated_at
+		FROM rooms WHERE id = $1`, roomID).
+		Scan(&room.ID, &room.GameVersionID, &room.HostUserID, &room.Title, &room.MaxPlayers, &room.Status, &room.Sequence, &raw, &room.CreatedAt, &room.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get room: %w", err)
+	}
+	if len(raw) > 0 {
+		var session game.GameSession
+		if err := json.Unmarshal(raw, &session); err != nil {
+			return nil, fmt.Errorf("decode room session: %w", err)
+		}
+		room.Session = &session
+	}
+	members, err := listMembers(ctx, s.pool, room.ID)
+	if err != nil {
+		return nil, err
+	}
+	room.Members = members
+	for _, member := range members {
+		if member.ActorKind == "user" && member.ActorID == room.HostUserID {
+			room.HostMemberID = member.ID
+			break
+		}
+	}
+	return &room, nil
+}
+
+func (s *Service) Join(ctx context.Context, actor identity.Actor, roomID string) (RoomMember, error) {
+	ref := actorReference(actor)
+	if ref.id == "" {
+		return RoomMember{}, ErrNotFound
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RoomMember{}, fmt.Errorf("begin room join: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var maxPlayers int16
+	var status string
+	err = tx.QueryRow(ctx, `SELECT max_players, status FROM rooms WHERE id = $1 FOR UPDATE`, roomID).Scan(&maxPlayers, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RoomMember{}, ErrNotFound
+	}
+	if err != nil {
+		return RoomMember{}, fmt.Errorf("lock room for join: %w", err)
+	}
+	if status != StatusLobby {
+		return RoomMember{}, ErrRoomNotJoinable
+	}
+	var alreadyMember bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND actor_kind = $2 AND actor_id = $3)`, roomID, ref.kind, ref.id).Scan(&alreadyMember); err != nil {
+		return RoomMember{}, fmt.Errorf("check room membership: %w", err)
+	}
+	if alreadyMember {
+		return RoomMember{}, ErrAlreadyMember
+	}
+	var memberCount int16
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM room_members WHERE room_id = $1`, roomID).Scan(&memberCount); err != nil {
+		return RoomMember{}, fmt.Errorf("count room members: %w", err)
+	}
+	if memberCount >= maxPlayers {
+		return RoomMember{}, ErrRoomFull
+	}
+	member, err := insertMember(ctx, tx, roomID, ref)
+	if err != nil {
+		return RoomMember{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+		return RoomMember{}, fmt.Errorf("touch room after join: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RoomMember{}, fmt.Errorf("commit room join: %w", err)
+	}
+	return member, nil
+}
+
+func (s *Service) Mute(ctx context.Context, actor identity.Actor, roomID, memberID string, muted bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin member moderation: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := assertHost(ctx, tx, actor, roomID); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE room_members
+		SET muted_at = CASE WHEN $3 THEN now() ELSE NULL END
+		WHERE room_id = $1 AND id = $2`, roomID, memberID, muted)
+	if err != nil {
+		return fmt.Errorf("mute room member: %w", err)
+	}
+	if command.RowsAffected() == 0 {
+		return ErrMemberNotFound
+	}
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+		return fmt.Errorf("touch room after mute: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit member moderation: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) Remove(ctx context.Context, actor identity.Actor, roomID, memberID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin member removal: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := assertHost(ctx, tx, actor, roomID); err != nil {
+		return err
+	}
+	var kind, actorID string
+	err = tx.QueryRow(ctx, `SELECT actor_kind, actor_id::text FROM room_members WHERE room_id = $1 AND id = $2`, roomID, memberID).Scan(&kind, &actorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMemberNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get member for removal: %w", err)
+	}
+	if kind == "user" && actor.User != nil && actorID == actor.User.ID {
+		return ErrCannotRemoveHost
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM room_members WHERE room_id = $1 AND id = $2`, roomID, memberID); err != nil {
+		return fmt.Errorf("remove room member: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE rooms SET updated_at = now() WHERE id = $1`, roomID); err != nil {
+		return fmt.Errorf("touch room after removal: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit member removal: %w", err)
+	}
+	return nil
+}
+
+type actorRef struct {
+	kind        string
+	id          string
+	displayName string
+}
+
+func actorReference(actor identity.Actor) actorRef {
+	if actor.User != nil {
+		return actorRef{kind: "user", id: actor.User.ID, displayName: actor.User.DisplayName}
+	}
+	if actor.Guest != nil {
+		return actorRef{kind: "guest", id: actor.Guest.ID, displayName: actor.Guest.DisplayName}
+	}
+	return actorRef{}
+}
+
+func validateCreateInput(input *CreateInput) error {
+	input.Title = strings.TrimSpace(input.Title)
+	if len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 120 {
+		return fmt.Errorf("room title must contain 1 to 120 characters")
+	}
+	if input.MaxPlayers < 2 || input.MaxPlayers > 8 {
+		return fmt.Errorf("room max players must be between 2 and 8")
+	}
+	return nil
+}
+
+func insertMember(ctx context.Context, tx pgx.Tx, roomID string, ref actorRef) (RoomMember, error) {
+	var member RoomMember
+	err := tx.QueryRow(ctx, `
+		INSERT INTO room_members (room_id, actor_kind, actor_id, display_name)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id::text, room_id::text, actor_kind, actor_id::text, display_name, muted_at, joined_at`,
+		roomID, ref.kind, ref.id, ref.displayName).
+		Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.DisplayName, &member.MutedAt, &member.JoinedAt)
+	if err != nil {
+		return RoomMember{}, fmt.Errorf("insert room member: %w", err)
+	}
+	return member, nil
+}
+
+type memberQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func listMembers(ctx context.Context, queryer memberQuerier, roomID string) ([]RoomMember, error) {
+	rows, err := queryer.Query(ctx, `
+		SELECT id::text, room_id::text, actor_kind, actor_id::text, display_name, muted_at, joined_at
+		FROM room_members WHERE room_id = $1 ORDER BY joined_at, id`, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("list room members: %w", err)
+	}
+	defer rows.Close()
+	members := make([]RoomMember, 0)
+	for rows.Next() {
+		var member RoomMember
+		if err := rows.Scan(&member.ID, &member.RoomID, &member.ActorKind, &member.ActorID, &member.DisplayName, &member.MutedAt, &member.JoinedAt); err != nil {
+			return nil, fmt.Errorf("scan room member: %w", err)
+		}
+		members = append(members, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate room members: %w", err)
+	}
+	return members, nil
+}
+
+func assertHost(ctx context.Context, tx pgx.Tx, actor identity.Actor, roomID string) error {
+	if actor.User == nil {
+		return ErrNotHost
+	}
+	var hostID string
+	err := tx.QueryRow(ctx, `SELECT host_user_id::text FROM rooms WHERE id = $1 FOR UPDATE`, roomID).Scan(&hostID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock room for moderation: %w", err)
+	}
+	if hostID != actor.User.ID {
+		return ErrNotHost
+	}
+	return nil
+}

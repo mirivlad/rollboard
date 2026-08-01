@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"rollboard/internal/storage/postgres"
+	"rollboard/internal/testdb"
 )
 
 func TestRepositoryRegisterRejectsDuplicateEmail(t *testing.T) {
@@ -22,6 +23,11 @@ func TestRepositoryRegisterRejectsDuplicateEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +58,11 @@ func TestRepositoryCreatesAndResolvesGuestSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +125,11 @@ func TestRepositoryAuthenticatesAndResolvesAccountSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +178,11 @@ func TestRepositoryClaimsGuestOnlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

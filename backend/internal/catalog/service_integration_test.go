@@ -11,6 +11,7 @@ import (
 	"rollboard/internal/game"
 	"rollboard/internal/identity"
 	"rollboard/internal/storage/postgres"
+	"rollboard/internal/testdb"
 )
 
 func TestPublishKeepsEarlierVersionImmutable(t *testing.T) {
@@ -24,6 +25,11 @@ func TestPublishKeepsEarlierVersionImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +75,62 @@ func TestPublishKeepsEarlierVersionImmutable(t *testing.T) {
 	}
 }
 
+func TestGetVersionByIDReturnsPublishedImmutableVersion(t *testing.T) {
+	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("ROLLBOARD_TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE users CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := identity.NewRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := identities.Register(ctx, identity.RegistrationInput{Email: "version-id@example.com", DisplayName: "Version owner", Password: "correct-horse-battery-staple"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.CreateGame(ctx, owner.ID, validDefinition("Pinned version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := service.Publish(ctx, owner.ID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	version, err := service.GetVersionByID(ctx, published.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version == nil || version.ID != published.ID || version.Definition.Title != "Pinned version" {
+		t.Fatalf("GetVersionByID() = %#v, want published immutable version", version)
+	}
+	missing, err := service.GetVersionByID(ctx, "00000000-0000-0000-0000-000000000000")
+	if err != nil || missing != nil {
+		t.Fatalf("missing GetVersionByID() = %#v, %v; want nil, nil", missing, err)
+	}
+}
+
 func TestDraftAccessIsOwnerOnlyAndInvalidDraftCannotPublish(t *testing.T) {
 	dsn := os.Getenv("ROLLBOARD_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -80,6 +142,11 @@ func TestDraftAccessIsOwnerOnlyAndInvalidDraftCannotPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

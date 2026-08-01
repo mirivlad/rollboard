@@ -202,6 +202,27 @@ func (s *Service) GetVersion(ctx context.Context, gameID string, number int) (*V
 	return &version, nil
 }
 
+// GetVersionByID returns an immutable published version by its storage ID.
+// Rooms use this ID rather than a mutable game draft or legacy game record.
+func (s *Service) GetVersionByID(ctx context.Context, id string) (*Version, error) {
+	var version Version
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, game_id, version_number, definition_json, published_at
+		FROM game_versions WHERE id = $1`, id).
+		Scan(&version.ID, &version.GameID, &version.VersionNumber, &raw, &version.PublishedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get game version by ID: %w", err)
+	}
+	if err := json.Unmarshal(raw, &version.Definition); err != nil {
+		return nil, fmt.Errorf("decode published version: %w", err)
+	}
+	return &version, nil
+}
+
 func newUUID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {

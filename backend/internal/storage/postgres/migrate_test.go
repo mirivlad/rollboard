@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"rollboard/internal/testdb"
 )
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -20,6 +21,11 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		t.Fatalf("open test pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	release, err := testdb.AcquireExclusive(ctx, pool)
+	if err != nil {
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(release)
 
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatalf("first Migrate() error = %v", err)
