@@ -417,7 +417,7 @@ func TestAlwaysEdge(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -461,7 +461,7 @@ func TestDiceTotalEven(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -508,7 +508,7 @@ func TestDiceTotalOdd(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -555,7 +555,7 @@ func TestDiceTotalIn(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -599,7 +599,7 @@ func TestPlayerResourceAtLeast(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"gold": {Initial: 10},
 			},
@@ -646,7 +646,7 @@ func TestPayResource(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"gold": {Initial: 10},
 			},
@@ -692,7 +692,7 @@ func TestPayResourceInsufficient(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"gold": {Initial: 2},
 			},
@@ -742,7 +742,7 @@ func TestManualChoiceCreatesPendingAction(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -816,7 +816,7 @@ func TestMoveStepsNoOutgoingEdges(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -858,7 +858,7 @@ func TestMoveStepsNoAvailableEdges(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
@@ -897,7 +897,7 @@ func TestMoveStepsLeadsToUnknownCell(t *testing.T) {
 			},
 		},
 		Rules: RuleSet{
-			Dice:  DiceRule{Count: 1, Sides: 6},
+			Dice: DiceRule{Count: 1, Sides: 6},
 			Resources: map[string]ResourceRule{
 				"money": {Initial: 100},
 			},
