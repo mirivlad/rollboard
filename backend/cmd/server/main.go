@@ -75,6 +75,7 @@ func main() {
 		WithAuthOptions(httpapi.AuthOptions{
 			CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL,
 			WebSocketOriginPatterns: []string{appOrigin.Host},
+			RateLimit:               cfg.AuthRateLimit,
 		})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {

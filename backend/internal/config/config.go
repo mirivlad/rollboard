@@ -16,6 +16,9 @@ const (
 	defaultAppOrigin   = "http://127.0.0.1:5173"
 	defaultSessionTTL  = 30 * 24 * time.Hour
 	defaultDBMaxConns  = int32(20)
+	// Attempts per minute, per source IP, per replica, on the credential
+	// endpoints. Set to a large value on a trusted private deployment.
+	defaultAuthRateLimit = int32(10)
 )
 
 type Config struct {
@@ -27,6 +30,7 @@ type Config struct {
 	SessionTTL       time.Duration
 	AppOrigin        string
 	StaticDir        string
+	AuthRateLimit    int
 }
 
 func Load() (Config, error) {
@@ -42,6 +46,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	authRateLimit, err := envPositiveInt32("ROLLBOARD_AUTH_RATE_LIMIT", defaultAuthRateLimit)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Addr:             env("ROLLBOARD_ADDR", defaultAddr),
@@ -52,6 +60,7 @@ func Load() (Config, error) {
 		SessionTTL:       sessionTTL,
 		AppOrigin:        env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
 		StaticDir:        strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
+		AuthRateLimit:    int(authRateLimit),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
