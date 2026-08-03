@@ -22,7 +22,7 @@ services:
       retries: 12
 
   app:
-    image: ${ROLLBOARD_IMAGE:-ghcr.io/rollboard/rollboard:latest}
+    image: ${ROLLBOARD_IMAGE:-ghcr.io/mirivlad/rollboard:latest}
     environment:
       ROLLBOARD_DATABASE_URL: postgres://${POSTGRES_USER:-rollboard}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rollboard}?sslmode=disable
       ROLLBOARD_DATABASE_MAX_CONNS: ${ROLLBOARD_DATABASE_MAX_CONNS:-20}
