@@ -80,7 +80,7 @@
   }
   .grid-cell {
     position: absolute;
-    border: 1px solid #1a2a4a;
+    border: 1px solid var(--accent-surface);
     box-sizing: border-box;
   }
   .cell-wrapper {

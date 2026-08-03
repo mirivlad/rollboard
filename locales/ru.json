@@ -4,7 +4,9 @@
   "app.signOut": "Выйти",
   "app.genericError": "Что-то пошло не так",
   "app.language": "Язык",
-
+  "theme.system": "Тема: как в системе",
+  "theme.light": "Тема: светлая",
+  "theme.dark": "Тема: тёмная",
   "auth.panelLabel": "Добро пожаловать в Rollboard",
   "auth.eyebrow": "ROLLBOARD",
   "auth.title": "Создавайте пошаговые настольные игры и играйте в них",
@@ -22,7 +24,6 @@
   "auth.submit.register": "Создать аккаунт",
   "auth.submit.login": "Войти",
   "auth.submit.busy": "Подождите…",
-
   "dashboard.eyebrow": "РАБОЧЕЕ МЕСТО АВТОРА",
   "dashboard.title": "Ваши игры",
   "dashboard.welcome": "Здравствуйте, {name}. Черновики видны только вам, пока вы не опубликуете версию.",
@@ -43,7 +44,6 @@
   "dashboard.accountRequired": "Создайте аккаунт, чтобы сохранять и публиковать игры.",
   "dashboard.draftSaved": "Черновик сохранён",
   "dashboard.published": "Опубликована версия {version}. Теперь можно создать комнату для совместной игры.",
-
   "setup.panelLabel": "Основные параметры игры",
   "setup.eyebrow": "ПОШАГОВАЯ НАСТРОЙКА",
   "setup.title": "Задайте основное",
@@ -53,10 +53,8 @@
   "setup.diceSides": "Граней на кубике",
   "setup.continue": "Перейти к полю",
   "setup.advanced": "Открыть расширенную студию",
-
   "game.untitled": "Без названия",
   "game.newCell": "Клетка {number}",
-
   "editor.back": "← К списку игр",
   "editor.save": "Сохранить черновик",
   "editor.publish": "Опубликовать",
@@ -75,7 +73,6 @@
   "editor.exitConnect": "Выйти из соединения",
   "editor.debug": "Отладка",
   "editor.debugTitle": "Отладка редактора",
-
   "inspector.cell": "Клетка: {id}",
   "inspector.id": "Идентификатор",
   "inspector.title": "Название",
@@ -116,7 +113,6 @@
   "inspector.resourcePlaceholder": "золото, ключи, здоровье…",
   "inspector.noConditionFields": "Для этого условия дополнительные поля не нужны.",
   "inspector.deleteEdge": "Удалить переход",
-
   "action.gain_resource": "Получить ресурс",
   "action.lose_resource": "Потерять ресурс",
   "action.transfer_resource": "Передать ресурс",
@@ -124,11 +120,9 @@
   "action.if_resource_ge": "Если ресурса ≥",
   "action.finish_game": "Завершить игру",
   "action.log_message": "Записать в журнал",
-
   "target.current": "Текущий игрок",
   "target.owner": "Владелец клетки",
   "target.bank": "Банк",
-
   "condition.always": "Всегда",
   "condition.dice_total_even": "Сумма кубиков чётная",
   "condition.dice_total_odd": "Сумма кубиков нечётная",
@@ -136,7 +130,6 @@
   "condition.player_resource_at_least": "Ресурса не меньше, чем",
   "condition.manual_choice": "Выбор игрока",
   "condition.pay_resource": "Заплатить ресурсом",
-
   "playtest.title": "Тестовая игра за одним устройством",
   "playtest.game": "Игра: {title}",
   "playtest.playersLabel": "Игроки",
@@ -166,7 +159,6 @@
   "playtest.eventLog": "Журнал событий",
   "playtest.passNext": "Передать ход следующему",
   "playtest.advancing": "Передача хода…",
-
   "lobby.eyebrow": "СОВМЕСТНАЯ ИГРА",
   "lobby.title": "Комнаты",
   "lobby.intro": "Комната закреплена за опубликованной версией игры. Гости заходят по идентификатору комнаты.",
@@ -182,7 +174,6 @@
   "lobby.roomIdPlaceholder": "Вставьте идентификатор",
   "lobby.joinButton": "Войти",
   "lobby.newRoom": "Новая комната",
-
   "room.back": "← К комнатам",
   "room.live": "КОМНАТА ОНЛАЙН",
   "room.reconnecting": "ПЕРЕПОДКЛЮЧЕНИЕ",
@@ -215,7 +206,6 @@
   "room.status.lobby": "лобби",
   "room.status.active": "идёт игра",
   "room.status.finished": "завершена",
-
   "errors.ACCOUNT_REQUIRED": "Нужен полноценный аккаунт. Создайте его или войдите.",
   "errors.CONFLICT": "Такое уже существует. Выберите другое значение.",
   "errors.CSRF_FAILED": "Не удалось проверить запрос. Обновите страницу и попробуйте снова.",

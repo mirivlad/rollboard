@@ -263,43 +263,49 @@
   .editor {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    height: calc(100vh - 120px);
+    gap: var(--space-3);
+    width: min(var(--page-full), 100%);
+    margin: 0 auto;
+    height: calc(100vh - 160px);
+    min-height: 480px;
   }
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #16213e;
-    border: 1px solid #0f3460;
-    border-radius: 8px;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
   .toolbar label {
     display: flex;
     align-items: center;
-    gap: 4px;
-    color: #aaa;
-    font-size: 12px;
+    gap: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    white-space: nowrap;
   }
   .toolbar input {
-    width: 60px;
-    padding: 4px 6px;
-    background: #0d1b2a;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
-    border-radius: 4px;
-    font-size: 13px;
+    width: 4.5rem;
+    padding: var(--space-2);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: var(--text-sm);
   }
   .dim-hint {
-    color: #4fc3f7;
-    font-size: 11px;
-    font-family: monospace;
+    color: var(--text-faint);
+    font-size: var(--text-xs);
+    font-family: var(--font-mono);
   }
   .sep {
     width: 1px;
     height: 20px;
-    background: #0f3460;
+    background: var(--border);
     margin: 0 4px;
   }
   .dice-num {
@@ -309,14 +315,14 @@
     width: 50px !important;
   }
   .title-input {
-    width: 160px !important;
+    width: min(14rem, 40vw) !important;
   }
   .bonus-resource {
     width: 80px;
     padding: 4px 6px;
-    background: #0d1b2a;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 4px;
     font-size: 12px;
   }
@@ -324,26 +330,63 @@
     width: 60px !important;
   }
   .toolbar button {
-    padding: 6px 12px;
-    border: 1px solid #0f3460;
-    background: #0d1b2a;
-    color: #e0e0e0;
-    border-radius: 4px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-strong);
+    background: var(--surface-raised);
+    color: var(--text);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 12px;
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
   }
   .toolbar button:hover {
-    background: #1a2a4a;
+    border-color: var(--accent);
+    background: var(--accent-surface);
   }
   .toolbar button.active {
-    background: #e94560;
-    border-color: #e94560;
-    color: white;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
   }
   .editor-body {
-    display: flex;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: var(--space-3);
     flex: 1;
     min-height: 0;
+  }
+
+  /* Below this width the side-by-side canvas and inspector left the board a
+     few pixels wide. Stack them and give the board a workable height instead. */
+  @media (max-width: 900px) {
+    .editor {
+      height: auto;
+    }
+    .editor-body {
+      grid-template-columns: 1fr;
+    }
+    .editor-body :global(.canvas-wrapper) {
+      min-height: 55vh;
+    }
+    .sep {
+      display: none;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .toolbar {
+      gap: var(--space-2);
+    }
+    .toolbar label {
+      font-size: var(--text-xs);
+    }
+    .title-input {
+      width: 100% !important;
+    }
+    .toolbar > label:first-of-type {
+      width: 100%;
+    }
   }
 </style>

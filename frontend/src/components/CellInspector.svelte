@@ -509,20 +509,20 @@
   .inspector {
     width: 260px;
     padding: 16px;
-    background: #16213e;
-    border: 1px solid #0f3460;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     overflow-y: auto;
     font-size: 13px;
   }
   .inspector h3, .inspector h4 {
     margin: 0 0 8px;
-    color: #e94560;
+    color: var(--danger);
   }
   .inspector label {
     display: block;
     margin-bottom: 8px;
-    color: #aaa;
+    color: var(--text-faint);
     font-size: 11px;
     text-transform: uppercase;
   }
@@ -531,9 +531,9 @@
     width: 100%;
     margin-top: 4px;
     padding: 6px 8px;
-    background: #0d1b2a;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 4px;
     box-sizing: border-box;
     font-size: 13px;
@@ -548,17 +548,17 @@
   }
   .inspector hr {
     border: none;
-    border-top: 1px solid #0f3460;
+    border-top: 1px solid var(--border);
     margin: 12px 0;
   }
   .hint {
-    color: #666;
+    color: var(--text-faint);
     font-style: italic;
   }
   .delete {
-    background: #5c1a1a;
-    color: #e94560;
-    border: 1px solid #e94560;
+    background: var(--danger-surface);
+    color: var(--danger);
+    border: 1px solid var(--danger);
     padding: 8px 16px;
     border-radius: 4px;
     cursor: pointer;
@@ -566,7 +566,7 @@
     font-size: 13px;
   }
   .delete:hover {
-    background: #7a2222;
+    background: var(--danger-surface);
   }
   .edge-row {
     display: flex;
@@ -577,24 +577,24 @@
     cursor: pointer;
     font-size: 12px;
     margin-bottom: 4px;
-    background: #0d1b2a;
+    background: var(--surface-sunken);
   }
   .edge-row.selected {
-    border: 1px solid #e94560;
+    border: 1px solid var(--danger);
   }
   .edge-row:hover {
-    background: #1a2a4a;
+    background: var(--accent-surface);
   }
   .edge-route {
     font-size: 12px;
-    color: #4fc3f7;
+    color: var(--accent);
     margin: 4px 0 12px;
     font-family: monospace;
   }
   button.small {
     background: none;
-    border: 1px solid #555;
-    color: #e94560;
+    border: 1px solid var(--border-strong);
+    color: var(--danger);
     padding: 2px 6px;
     cursor: pointer;
     border-radius: 3px;
@@ -612,22 +612,22 @@
   }
   .action-list-title {
     font-weight: bold;
-    color: #4fc3f7;
+    color: var(--accent);
     font-size: 12px;
     text-transform: uppercase;
   }
   .action-type-select {
     font-size: 11px;
     padding: 2px 4px;
-    background: #0d1b2a;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 3px;
     width: auto;
   }
   .action-item {
-    background: #0d1b2a;
-    border: 1px solid #0f3460;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
     border-radius: 4px;
     margin-bottom: 6px;
     padding: 6px;
@@ -642,9 +642,9 @@
     flex: 1;
     font-size: 11px;
     padding: 2px 4px;
-    background: #16213e;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 3px;
   }
   .action-controls {
@@ -660,8 +660,8 @@
     cursor: not-allowed;
   }
   .small.danger {
-    color: #e94560;
-    border-color: #e94560;
+    color: var(--danger);
+    border-color: var(--danger);
   }
   .action-fields {
     margin-top: 6px;
@@ -670,23 +670,23 @@
     display: block;
     margin-bottom: 4px;
     font-size: 10px;
-    color: #888;
+    color: var(--text-faint);
   }
   .action-fields input, .action-fields select {
     display: block;
     width: 100%;
     margin-top: 2px;
     padding: 3px 6px;
-    background: #16213e;
-    border: 1px solid #0f3460;
-    color: #e0e0e0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 3px;
     box-sizing: border-box;
     font-size: 11px;
   }
   .action-fields .hint {
     font-size: 10px;
-    color: #555;
+    color: var(--text-faint);
     margin: 4px 0 0;
   }
 </style>

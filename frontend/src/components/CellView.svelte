@@ -41,7 +41,7 @@
 <style>
   .cell {
     position: absolute;
-    border: 2px solid #333;
+    border: 2px solid rgba(0, 0, 0, 0.35);
     border-radius: 8px;
     display: flex;
     flex-direction: column;
@@ -58,7 +58,7 @@
     box-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
   }
   .cell.selected {
-    border-color: #e94560;
+    border-color: var(--danger);
     box-shadow: 0 0 12px rgba(233, 69, 96, 0.7);
   }
   .cell-content {

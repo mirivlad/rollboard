@@ -64,25 +64,25 @@
       </label>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="primary" type="submit" disabled={busy}>
+    <button class="btn btn-primary primary" type="submit" disabled={busy}>
       {busy ? t('auth.submit.busy') : mode === 'guest' ? t('auth.submit.guest') : mode === 'register' ? t('auth.submit.register') : t('auth.submit.login')}
     </button>
   </form>
 </section>
 
 <style>
-  .auth-panel { width: min(100%, 520px); padding: 2.25rem; border: 1px solid #2a3554; border-radius: 20px; background: #121a2e; box-shadow: 0 22px 60px #05081799; }
+  .auth-panel { width: min(100%, 520px); padding: 2.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-lg); }
   .top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-  .eyebrow { margin: 0; color: #75d4ff; font-weight: 800; letter-spacing: .12em; font-size: .75rem; }
-  h1 { margin: .45rem 0 .75rem; font-size: clamp(1.75rem, 5vw, 2.45rem); line-height: 1.1; color: #f5f7ff; }
-  .intro { color: #aab6d3; line-height: 1.55; }
+  .eyebrow { margin: 0; color: var(--accent-strong); font-weight: 800; letter-spacing: .12em; font-size: .75rem; }
+  h1 { margin: .45rem 0 .75rem; font-size: clamp(1.75rem, 5vw, 2.45rem); line-height: 1.1; color: var(--text); }
+  .intro { color: var(--text-muted); line-height: 1.55; }
   .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: 1.6rem 0 1rem; }
-  .tabs button { border: 1px solid #2a3554; border-radius: 8px; padding: .6rem .35rem; background: #0b1224; color: #b8c4e0; cursor: pointer; }
-  .tabs button.active { border-color: #6dd3ff; background: #153451; color: #fff; }
+  .tabs button { border: 1px solid var(--border); border-radius: 8px; padding: .6rem .35rem; background: var(--surface-sunken); color: var(--text-muted); cursor: pointer; }
+  .tabs button.active { border-color: var(--accent-strong); background: var(--accent-surface); color: var(--text); }
   form { display: grid; gap: .9rem; }
-  label { display: grid; gap: .35rem; color: #dce5fb; font-size: .9rem; }
-  input { box-sizing: border-box; width: 100%; border: 1px solid #354568; border-radius: 8px; padding: .75rem; background: #0b1224; color: #f5f7ff; font: inherit; }
-  .primary { margin-top: .3rem; border: 0; border-radius: 8px; padding: .82rem 1rem; background: #52c4f2; color: #061120; cursor: pointer; font-weight: 800; font: inherit; }
+  label { display: grid; gap: .35rem; color: var(--text); font-size: .9rem; }
+  input { box-sizing: border-box; width: 100%; border: 1px solid var(--border-strong); border-radius: 8px; padding: .75rem; background: var(--surface-sunken); color: var(--text); font: inherit; }
+  .primary { margin-top: .3rem; border: 0; border-radius: 8px; padding: .82rem 1rem; background: var(--accent); color: var(--accent-contrast); cursor: pointer; font-weight: 800; font: inherit; }
   .primary:disabled { opacity: .6; cursor: wait; }
-  .error { margin: 0; color: #ff8b9d; }
+  .error { margin: 0; color: var(--danger); }
 </style>

@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { CatalogGame, GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room } from './lib/types';
-  import { api } from './lib/api';
+  import { ApiError, api } from './lib/api';
   import { errorMessage, i18n } from './lib/i18n.svelte';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
   import AuthPanel from './components/AuthPanel.svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
+  import ThemeToggle from './components/ThemeToggle.svelte';
   import BoardEditor from './components/BoardEditor.svelte';
   import GameDashboard, { type Template } from './components/GameDashboard.svelte';
   import GameSetup from './components/GameSetup.svelte';
@@ -93,7 +94,22 @@
   }
   async function openGame(gameID: string) { busy = true; message = ''; try { currentGame = await api.getDraft(gameID); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; } }
   async function createRoom(versionId: string, title: string, maxPlayers: number) { busy = true; message = ''; try { currentRoom = await api.createRoom(versionId, title || t('lobby.newRoom'), maxPlayers); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
-  async function joinRoom(roomId: string) { busy = true; message = ''; try { await api.joinRoom(roomId); currentRoom = await api.getRoom(roomId); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
+  async function joinRoom(roomId: string) {
+    busy = true; message = '';
+    try {
+      try {
+        await api.joinRoom(roomId);
+      } catch (error) {
+        // The host is already a member of the room they created, and so is
+        // anyone returning to a room they left open. Joining again is refused,
+        // but they are still entitled to enter, so fall through to the read
+        // and let its membership check decide.
+        if (!(error instanceof ApiError) || error.code !== 'ROOM_CONFLICT') throw error;
+      }
+      currentRoom = await api.getRoom(roomId);
+      view = 'room';
+    } catch (error) { showError(error); } finally { busy = false; }
+  }
   async function logout() { await api.logout(); principal = null; currentGame = null; currentSession = null; view = 'auth'; }
 
   $effect(() => { restoreSession(); });
@@ -101,9 +117,18 @@
 
 <div class="app">
   {#if view !== 'auth' && view !== 'loading'}
-    <header><strong>Rollboard</strong><span>{displayName()}</span><LanguagePicker /><button onclick={() => (view = 'rooms')}>{t('app.rooms')}</button><button onclick={logout}>{t('app.signOut')}</button></header>
+    <header>
+      <strong class="brand">Rollboard</strong>
+      <span class="who">{displayName()}</span>
+      <div class="header-actions">
+        <LanguagePicker />
+        <ThemeToggle />
+        <button class="btn" onclick={() => (view = 'rooms')}>{t('app.rooms')}</button>
+        <button class="btn" onclick={logout}>{t('app.signOut')}</button>
+      </div>
+    </header>
   {/if}
-  <main>
+  <main class:centred={view === 'auth' || view === 'loading'}>
     <!-- The auth panel renders the message inline next to the form, so the
          banner would be a duplicate there. -->
     {#if message && view !== 'auth'}<p class="message" role="alert">{message}</p>{/if}
@@ -115,20 +140,167 @@
     {:else if view === 'setup' && currentGame}
       <GameSetup game={currentGame} onContinue={finishSetup} onAdvanced={finishSetup} />
     {:else if view === 'editor' && currentGame}
-      <nav class="editor-actions"><button onclick={() => (view = 'dashboard')}>{t('editor.back')}</button><button onclick={saveGame} disabled={busy}>{t('editor.save')}</button><button onclick={publishGame} disabled={busy}>{t('editor.publish')}</button><button onclick={() => (view = 'playtest')}>{t('editor.playtest')}</button></nav>
+      <nav class="page-actions">
+        <button class="btn" onclick={() => (view = 'dashboard')}>{t('editor.back')}</button>
+        <button class="btn" onclick={saveGame} disabled={busy}>{t('editor.save')}</button>
+        <button class="btn btn-primary" onclick={publishGame} disabled={busy}>{t('editor.publish')}</button>
+        <button class="btn" onclick={() => (view = 'playtest')}>{t('editor.playtest')}</button>
+      </nav>
       <BoardEditor game={currentGame} onsave={saveGame} />
     {:else if view === 'playtest' && currentGame}
       <PlaytestPanel {currentGame} session={currentSession} onSessionCreated={(session) => (currentSession = session)} onBack={() => (view = 'editor')} />
     {:else if view === 'rooms'}
       <RoomLobby versions={publishedVersions} onCreate={createRoom} onJoin={joinRoom} {busy} />
     {:else if view === 'room' && currentRoom}
-      <nav class="editor-actions"><button onclick={() => (view = 'rooms')}>{t('room.back')}</button><code>{currentRoom.id}</code></nav>
+      <nav class="page-actions">
+        <button class="btn" onclick={() => (view = 'rooms')}>{t('room.back')}</button>
+        <code class="room-id">{currentRoom.id}</code>
+      </nav>
       <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} canModerate={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} actor={roomActor} onRoom={(room) => (currentRoom = room)} />
     {/if}
   </main>
 </div>
 
 <style>
-  .app { min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: radial-gradient(circle at top left, #15345a, #090e1c 52%); color: #eef3ff; }
-  header { display: flex; gap: 1rem; align-items: center; padding: .9rem 1.5rem; border-bottom: 1px solid #273858; background: #0b1224cc; } header strong { color: #74d4ff; } header span { margin-left: auto; color: #b5c2dd; } button { border: 1px solid #385071; border-radius: 8px; padding: .55rem .8rem; background: #14233d; color: #eff5ff; cursor: pointer; font: inherit; } main { padding: clamp(1rem, 4vw, 3rem); } .loading { color: #b9c8e5; text-align: center; padding: 4rem; } .message { width: min(1120px, 100%); margin: 0 auto 1rem; padding: .8rem; border: 1px solid #7c4561; border-radius: 8px; color: #ffd5df; background: #402034; } .editor-actions { display: flex; gap: .6rem; margin: 0 auto 1rem; width: min(1400px, 100%); }.editor-actions code{padding:.55rem;background:#080e1c;border-radius:8px;overflow:auto}
+  .app {
+    min-height: 100vh;
+    background: var(--bg-gradient);
+    background-attachment: fixed;
+    color: var(--text);
+  }
+
+  header {
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    min-height: var(--header-height);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-overlay);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    color: var(--accent-strong);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-black);
+    letter-spacing: -0.01em;
+  }
+
+  .who {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  main {
+    padding: clamp(var(--space-4), 4vw, var(--space-7));
+  }
+
+  /* The sign-in card used to sit against the left edge because main only had
+     padding. Centre it instead. */
+  main.centred {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+  }
+
+  .loading {
+    padding: var(--space-7);
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .message {
+    width: min(var(--page-wide), 100%);
+    margin: 0 auto var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--danger);
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+    background: var(--danger-surface);
+    color: var(--text);
+  }
+
+  .page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    width: min(var(--page-full), 100%);
+    margin: 0 auto var(--space-4);
+  }
+
+  .room-id {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    overflow-x: auto;
+  }
+
+  /* Shared button, so every screen gets the same control instead of each
+     component inventing its own. */
+  :global(.btn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    color: var(--text);
+    font: inherit;
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+  }
+  :global(.btn:hover:not(:disabled)) {
+    border-color: var(--accent);
+    background: var(--accent-surface);
+  }
+  :global(.btn:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  :global(.btn-primary) {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-weight: var(--weight-bold);
+  }
+  :global(.btn-primary:hover:not(:disabled)) {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+  }
+
+  @media (max-width: 640px) {
+    header {
+      gap: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+    }
+    .who {
+      width: 100%;
+      margin-left: 0;
+      order: 3;
+    }
+    .header-actions {
+      margin-left: auto;
+    }
+  }
 </style>

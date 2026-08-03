@@ -4,7 +4,9 @@
   "app.signOut": "Sign out",
   "app.genericError": "Something went wrong",
   "app.language": "Language",
-
+  "theme.system": "Theme: follow system",
+  "theme.light": "Theme: light",
+  "theme.dark": "Theme: dark",
   "auth.panelLabel": "Welcome to Rollboard",
   "auth.eyebrow": "ROLLBOARD",
   "auth.title": "Create and play turn-based board games",
@@ -22,7 +24,6 @@
   "auth.submit.register": "Create account",
   "auth.submit.login": "Sign in",
   "auth.submit.busy": "Please wait…",
-
   "dashboard.eyebrow": "AUTHOR WORKSPACE",
   "dashboard.title": "Your games",
   "dashboard.welcome": "Welcome, {name}. Drafts are private until you publish a version.",
@@ -43,7 +44,6 @@
   "dashboard.accountRequired": "Create an account to save and publish games.",
   "dashboard.draftSaved": "Draft saved",
   "dashboard.published": "Published version {version}. You can now create a multiplayer room.",
-
   "setup.panelLabel": "Game basics",
   "setup.eyebrow": "GUIDED SETUP",
   "setup.title": "Set up the basics",
@@ -53,10 +53,8 @@
   "setup.diceSides": "Dice sides",
   "setup.continue": "Continue to board",
   "setup.advanced": "Open Advanced Studio",
-
   "game.untitled": "Untitled Game",
   "game.newCell": "Cell {number}",
-
   "editor.back": "← Dashboard",
   "editor.save": "Save draft",
   "editor.publish": "Publish",
@@ -75,7 +73,6 @@
   "editor.exitConnect": "Exit Connect",
   "editor.debug": "Debug",
   "editor.debugTitle": "Editor Debug",
-
   "inspector.cell": "Cell: {id}",
   "inspector.id": "ID",
   "inspector.title": "Title",
@@ -116,7 +113,6 @@
   "inspector.resourcePlaceholder": "gold, keys, health…",
   "inspector.noConditionFields": "No additional fields needed for this condition.",
   "inspector.deleteEdge": "Delete Edge",
-
   "action.gain_resource": "Gain Resource",
   "action.lose_resource": "Lose Resource",
   "action.transfer_resource": "Transfer Resource",
@@ -124,11 +120,9 @@
   "action.if_resource_ge": "If Resource ≥",
   "action.finish_game": "Finish Game",
   "action.log_message": "Log Message",
-
   "target.current": "Current Player",
   "target.owner": "Cell Owner",
   "target.bank": "Bank",
-
   "condition.always": "Always",
   "condition.dice_total_even": "Dice Total Even",
   "condition.dice_total_odd": "Dice Total Odd",
@@ -136,7 +130,6 @@
   "condition.player_resource_at_least": "Resource ≥ Amount",
   "condition.manual_choice": "Manual Choice",
   "condition.pay_resource": "Pay Resource",
-
   "playtest.title": "Hotseat Playtest",
   "playtest.game": "Game: {title}",
   "playtest.playersLabel": "Players",
@@ -164,7 +157,6 @@
   "playtest.eventLog": "Event Log",
   "playtest.passNext": "Pass to Next Player",
   "playtest.advancing": "Advancing…",
-
   "lobby.eyebrow": "MULTIPLAYER",
   "lobby.title": "Rooms",
   "lobby.intro": "Rooms are pinned to a published game version. Guests can join with a room ID.",
@@ -180,7 +172,6 @@
   "lobby.roomIdPlaceholder": "Paste room ID",
   "lobby.joinButton": "Join room",
   "lobby.newRoom": "New room",
-
   "room.back": "← Rooms",
   "room.live": "LIVE ROOM",
   "room.reconnecting": "RECONNECTING",
@@ -213,7 +204,6 @@
   "room.status.lobby": "lobby",
   "room.status.active": "active",
   "room.status.finished": "finished",
-
   "errors.ACCOUNT_REQUIRED": "This needs a full account. Create one or sign in.",
   "errors.CONFLICT": "That already exists. Choose a different value.",
   "errors.CSRF_FAILED": "The request could not be verified. Refresh the page and try again.",

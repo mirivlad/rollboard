@@ -50,12 +50,12 @@
       <label>{t('setup.diceSides')}<input aria-label={t('setup.diceSides')} type="number" bind:value={diceSides} min="2" max="100" /></label>
     </div>
     <div class="actions">
-      <button class="primary" type="submit">{t('setup.continue')}</button>
-      <button type="button" onclick={() => void onAdvanced(updatedGame())}>{t('setup.advanced')}</button>
+      <button class="btn btn-primary" type="submit">{t('setup.continue')}</button>
+      <button class="btn" type="button" onclick={() => void onAdvanced(updatedGame())}>{t('setup.advanced')}</button>
     </div>
   </form>
 </section>
 
 <style>
-  .setup{width:min(680px,100%);margin:3rem auto;padding:2rem;border:1px solid #30415f;border-radius:16px;background:#101a30}.eyebrow{margin:0;color:#75d4ff;font-size:.75rem;font-weight:800;letter-spacing:.12em}.setup h1{margin:.4rem 0}.setup>p:not(.eyebrow){color:#b7c4dc;line-height:1.5}.setup form{display:grid;gap:1rem;margin-top:1.5rem}.setup label{display:grid;gap:.4rem;color:#dbe6fa}.setup input{box-sizing:border-box;width:100%;padding:.7rem;border:1px solid #385071;border-radius:8px;background:#0b1224;color:#f1f6ff;font:inherit}.dice{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.actions{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:.5rem}.actions button{border:1px solid #385071;border-radius:8px;padding:.65rem .9rem;background:#14233d;color:#eff5ff;cursor:pointer;font:inherit}.actions .primary{border-color:#52c4f2;background:#52c4f2;color:#061120;font-weight:800}@media(max-width:560px){.dice{grid-template-columns:1fr}}
+  .setup{width:min(680px,100%);margin:3rem auto;padding:2rem;border:1px solid var(--border);border-radius:16px;background:var(--surface)}.eyebrow{margin:0;color:var(--accent-strong);font-size:.75rem;font-weight:800;letter-spacing:.12em}.setup h1{margin:.4rem 0}.setup>p:not(.eyebrow){color:var(--text-muted);line-height:1.5}.setup form{display:grid;gap:1rem;margin-top:1.5rem}.setup label{display:grid;gap:.4rem;color:var(--text)}.setup input{box-sizing:border-box;width:100%;padding:.7rem;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-sunken);color:var(--text);font:inherit}.dice{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.actions{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:.5rem}@media(max-width:560px){.dice{grid-template-columns:1fr}}
 </style>

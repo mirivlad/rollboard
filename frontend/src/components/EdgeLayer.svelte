@@ -69,20 +69,18 @@
         y1={pts.y1}
         x2={pts.x2}
         y2={pts.y2}
-        stroke={edge.id === selectedEdgeId ? '#e94560' : '#4fc3f7'}
+        class="edge-line"
+        class:selected={edge.id === selectedEdgeId}
         stroke-width="2"
         marker-end="url(#arrowhead)"
-        style="pointer-events: none;"
       />
       <!-- Condition label -->
       <text
         x={(pts.x1 + pts.x2) / 2}
         y={(pts.y1 + pts.y2) / 2 - 8}
+        class="edge-label"
         text-anchor="middle"
-        fill="#aaa"
         font-size="11"
-        font-family="monospace"
-        style="pointer-events: none;"
       >
         {condLabel(edge.condition)}
       </text>
@@ -90,7 +88,7 @@
   {/each}
   <defs>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#4fc3f7" />
+      <polygon class="edge-arrow" points="0 0, 10 3.5, 0 7" />
     </marker>
   </defs>
 </svg>
@@ -105,5 +103,20 @@
   }
   .edge-layer line, .edge-layer path {
     pointer-events: stroke;
+  }
+  .edge-line {
+    stroke: var(--accent);
+    pointer-events: none;
+  }
+  .edge-line.selected {
+    stroke: var(--danger);
+  }
+  .edge-arrow {
+    fill: var(--accent);
+  }
+  .edge-label {
+    fill: var(--text-faint);
+    font-family: var(--font-mono);
+    pointer-events: none;
   }
 </style>

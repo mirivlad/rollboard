@@ -26,7 +26,8 @@
   let dragOffsetY = $state(0);
   let hasDragged = $state(false);
   let pointerStart = $state<{ x: number; y: number } | null>(null);
-  let debugVisible = $state(true);
+  // Development aid, off by default: it used to open over the board.
+  let debugVisible = $state(false);
 
   let mouseBoardX = $state(0);
   let mouseBoardY = $state(0);
@@ -229,9 +230,9 @@
 <style>
   .canvas-wrapper {
     overflow: auto;
-    border: 1px solid #0f3460;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: #0d1b2a;
+    background: var(--surface-sunken);
     flex: 1;
   }
   .canvas-area {
@@ -244,15 +245,15 @@
   }
   .grid-cell {
     position: absolute;
-    border: 1px solid #1a2a4a;
+    border: 1px solid var(--accent-surface);
     box-sizing: border-box;
   }
   .connect-hint {
     position: absolute;
     bottom: 8px;
     left: 8px;
-    background: #e94560;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-contrast);
     padding: 4px 12px;
     border-radius: 4px;
     font-size: 12px;
@@ -264,17 +265,17 @@
     top: 4px;
     right: 4px;
     background: rgba(0,0,0,0.85);
-    border: 1px solid #e94560;
+    border: 1px solid var(--danger);
     border-radius: 4px;
     padding: 8px;
     font-size: 10px;
     font-family: monospace;
-    color: #ccc;
+    color: var(--text-muted);
     z-index: 200;
     min-width: 180px;
   }
   .debug-title {
-    color: #e94560;
+    color: var(--danger);
     font-weight: bold;
     margin-bottom: 4px;
     font-size: 11px;
@@ -283,13 +284,13 @@
     margin: 2px 0;
   }
   .debug-val {
-    color: #4fc3f7;
+    color: var(--accent);
   }
   .debug-close {
     float: right;
     background: none;
     border: none;
-    color: #e94560;
+    color: var(--danger);
     cursor: pointer;
     font-size: 12px;
     padding: 0 2px;
@@ -299,8 +300,8 @@
     top: 4px;
     right: 4px;
     background: rgba(0,0,0,0.7);
-    border: 1px solid #555;
-    color: #aaa;
+    border: 1px solid var(--border-strong);
+    color: var(--text-faint);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 10px;

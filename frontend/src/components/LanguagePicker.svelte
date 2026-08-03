@@ -21,10 +21,10 @@
   .language { display: inline-flex; align-items: center; }
   select {
     padding: .4rem .5rem;
-    border: 1px solid #385071;
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
-    background: #0b1224;
-    color: #eff5ff;
+    background: var(--surface-sunken);
+    color: var(--text);
     font: inherit;
     font-size: .85rem;
     cursor: pointer;
