@@ -25,15 +25,24 @@ const (
 	csrfCookieName    = "rollboard_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
 	defaultSessionTTL = 30 * 24 * time.Hour
+
+	// Credential endpoints are the brute-force surface, so they get a tight
+	// budget. Guest entry creates no credential to guess but does create rows,
+	// so it gets a looser one.
+	authRateLimit   = 10
+	guestRateLimit  = 30
+	rateLimitWindow = time.Minute
 )
 
 type API struct {
-	store    storage.Store
-	identity identity.Service
-	catalog  CatalogService
-	rooms    RoomService
-	hub      *realtime.Hub
-	auth     AuthOptions
+	store        storage.Store
+	identity     identity.Service
+	catalog      CatalogService
+	rooms        RoomService
+	hub          *realtime.Hub
+	auth         AuthOptions
+	authLimiter  *rateLimiter
+	guestLimiter *rateLimiter
 }
 
 type CatalogService interface {
@@ -63,6 +72,9 @@ type AuthOptions struct {
 	CookieSecure            bool
 	SessionTTL              time.Duration
 	WebSocketOriginPatterns []string
+	// RateLimit caps credential attempts per minute per source IP. Zero keeps
+	// the built-in default.
+	RateLimit int
 }
 
 func (a *API) WithIdentity(service identity.Service) *API {
@@ -91,6 +103,11 @@ func (a *API) WithAuthOptions(options AuthOptions) *API {
 	}
 	a.auth.CookieSecure = options.CookieSecure
 	a.auth.WebSocketOriginPatterns = append([]string(nil), options.WebSocketOriginPatterns...)
+	if options.RateLimit > 0 {
+		a.auth.RateLimit = options.RateLimit
+		a.authLimiter = newRateLimiter(options.RateLimit, rateLimitWindow)
+		a.guestLimiter = newRateLimiter(options.RateLimit*guestRateLimit/authRateLimit, rateLimitWindow)
+	}
 	return a
 }
 
@@ -101,7 +118,12 @@ type apiError struct {
 }
 
 func New(store storage.Store) *API {
-	return &API{store: store, auth: AuthOptions{SessionTTL: defaultSessionTTL}}
+	return &API{
+		store:        store,
+		auth:         AuthOptions{SessionTTL: defaultSessionTTL},
+		authLimiter:  newRateLimiter(authRateLimit, rateLimitWindow),
+		guestLimiter: newRateLimiter(guestRateLimit, rateLimitWindow),
+	}
 }
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
@@ -127,6 +149,9 @@ func (a *API) handleGuestEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.identity == nil {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	if !enforceRateLimit(w, r, a.guestLimiter) {
 		return
 	}
 	var body struct {
@@ -163,6 +188,9 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.identity == nil {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
+		return
+	}
+	if !enforceRateLimit(w, r, a.authLimiter) {
 		return
 	}
 	var body struct {
@@ -323,6 +351,9 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
 		return
 	}
+	if !enforceRateLimit(w, r, a.authLimiter) {
+		return
+	}
 	var input identity.RegistrationInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
@@ -388,77 +419,60 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleGames(w http.ResponseWriter, r *http.Request) {
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		if a.catalog != nil {
-			actor, ok := a.currentActor(w, r)
-			if !ok {
-				return
-			}
-			if actor.User == nil {
-				writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
-				return
-			}
-			games, err := a.catalog.ListGames(r.Context(), actor.User.ID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list your games", "try again later")
-				return
-			}
-			writeJSON(w, http.StatusOK, games)
+		user, ok := a.requireAccount(w, r)
+		if !ok {
 			return
 		}
-		list, err := a.store.ListGames(r.Context())
+		games, err := a.catalog.ListGames(r.Context(), user.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list games", "try again later")
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not list your games", "try again later")
 			return
 		}
-		writeJSON(w, http.StatusOK, list)
+		writeJSON(w, http.StatusOK, games)
 
 	case http.MethodPost:
+		user, ok := a.requireAccount(w, r)
+		if !ok {
+			return
+		}
+		if !requireCSRF(w, r) {
+			return
+		}
 		var definition game.GameDefinition
 		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
 			return
 		}
-		if a.catalog != nil {
-			actor, ok := a.currentActor(w, r)
-			if !ok {
-				return
-			}
-			if actor.User == nil {
-				writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
-				return
-			}
-			if !requireCSRF(w, r) {
-				return
-			}
-			created, err := a.catalog.CreateGame(r.Context(), actor.User.ID, definition)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not create game draft", "try again later")
-				return
-			}
-			writeJSON(w, http.StatusCreated, created)
+		created, err := a.catalog.CreateGame(r.Context(), user.ID, definition)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not create game draft", "try again later")
 			return
 		}
-		if strings.TrimSpace(definition.ID) == "" {
-			definition.ID = generateSlug(definition.Title)
-		}
-		if definition.Version == 0 {
-			definition.Version = 1
-		}
-		if err := a.store.CreateGame(r.Context(), &definition); err != nil {
-			if strings.Contains(err.Error(), "duplicate key") {
-				writeError(w, http.StatusConflict, "CONFLICT", "game already exists", "choose a different game ID")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not create game", "try again later")
-			return
-		}
-		writeJSON(w, http.StatusCreated, definition)
+		writeJSON(w, http.StatusCreated, created)
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET or POST")
 	}
+}
+
+// requireAccount resolves the caller and insists on a full account. Guests may
+// join and play rooms, but authoring always belongs to a registered user.
+func (a *API) requireAccount(w http.ResponseWriter, r *http.Request) (*identity.User, bool) {
+	actor, ok := a.currentActor(w, r)
+	if !ok {
+		return nil, false
+	}
+	if actor.User == nil {
+		writeError(w, http.StatusForbidden, "ACCOUNT_REQUIRED", "account required", "claim your guest profile or sign in")
+		return nil, false
+	}
+	return actor.User, true
 }
 
 func (a *API) handleRooms(w http.ResponseWriter, r *http.Request) {
@@ -733,52 +747,10 @@ func (a *API) handleGameByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		definition, err := a.store.GetGame(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
-			return
-		}
-		if definition == nil {
-			writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
-			return
-		}
-		writeJSON(w, http.StatusOK, definition)
-
-	case http.MethodPut:
-		var definition game.GameDefinition
-		if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
-			return
-		}
-		definition.ID = id
-		existing, err := a.store.GetGame(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
-			return
-		}
-		if existing == nil {
-			if definition.Version == 0 {
-				definition.Version = 1
-			}
-			err = a.store.CreateGame(r.Context(), &definition)
-		} else {
-			definition.Version = existing.Version
-			err = a.store.UpdateGame(r.Context(), &definition)
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not save game", "try again later")
-			return
-		}
-		writeJSON(w, http.StatusOK, definition)
-
-	case http.MethodDelete:
-		writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "game deletion is not available", "use a new draft instead")
-
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET, PUT, or DELETE")
-	}
+	// Bare /api/games/{id} used to read and write game definitions with no
+	// authentication at all, which let anyone overwrite another author's game.
+	// Drafts and published versions are the only supported access paths.
+	writeError(w, http.StatusNotFound, "NOT_FOUND", "not found", "use /api/games/{id}/draft or /api/games/{id}/versions/{number}")
 }
 
 func (a *API) handleOwnedVersions(w http.ResponseWriter, r *http.Request) {
@@ -923,13 +895,12 @@ func (a *API) handleValidate(w http.ResponseWriter, r *http.Request, gameID stri
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
 		return
 	}
-	definition, err := a.store.GetGame(r.Context(), gameID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
+	user, ok := a.requireAccount(w, r)
+	if !ok {
 		return
 	}
-	if definition == nil {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
+	definition, ok := a.ownedDraftDefinition(w, r, user, gameID)
+	if !ok {
 		return
 	}
 	if err := game.ValidateDefinition(definition); err != nil {
@@ -939,18 +910,53 @@ func (a *API) handleValidate(w http.ResponseWriter, r *http.Request, gameID stri
 	writeJSON(w, http.StatusOK, map[string]bool{"valid": true})
 }
 
+// ownedDraftDefinition loads a draft through the catalog, which scopes the
+// lookup to the calling account. A draft owned by somebody else is reported as
+// missing rather than forbidden so the endpoint cannot be used to probe for
+// game IDs.
+func (a *API) ownedDraftDefinition(w http.ResponseWriter, r *http.Request, user *identity.User, gameID string) (*game.GameDefinition, bool) {
+	if a.catalog == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "catalog service not ready", "try again later")
+		return nil, false
+	}
+	if !requireCSRF(w, r) {
+		return nil, false
+	}
+	draft, err := a.catalog.GetDraft(r.Context(), user.ID, gameID)
+	if errors.Is(err, catalog.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game draft not found", "check the game ID")
+		return nil, false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game draft", "try again later")
+		return nil, false
+	}
+	if draft == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "game draft not found", "check the game ID")
+		return nil, false
+	}
+	// Normalise defensively: drafts stored before the catalog enforced these
+	// invariants may carry an empty ID or a zero version, either of which would
+	// produce an unusable session.
+	definition := draft.Definition
+	definition.ID = gameID
+	if definition.Version < 1 {
+		definition.Version = 1
+	}
+	return &definition, true
+}
+
 func (a *API) handlePlaytest(w http.ResponseWriter, r *http.Request, gameID string) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
 		return
 	}
-	definition, err := a.store.GetGame(r.Context(), gameID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load game", "try again later")
+	user, ok := a.requireAccount(w, r)
+	if !ok {
 		return
 	}
-	if definition == nil {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "game not found", "check the game ID")
+	definition, ok := a.ownedDraftDefinition(w, r, user, gameID)
+	if !ok {
 		return
 	}
 
@@ -975,7 +981,7 @@ func (a *API) handlePlaytest(w http.ResponseWriter, r *http.Request, gameID stri
 
 	session := game.StartSession(definition, body.Players)
 	session.Mode = body.Mode
-	if err := a.store.SaveSession(r.Context(), session); err != nil {
+	if err := a.store.SaveSession(r.Context(), user.ID, session); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not start playtest", "try again later")
 		return
 	}
@@ -997,16 +1003,31 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use GET")
 		return
 	}
-	session, err := a.store.GetSession(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+	user, ok := a.requireAccount(w, r)
+	if !ok {
 		return
 	}
-	if session == nil {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "session not found", "check the session ID")
+	session, ok := a.ownedSession(w, r, user, id)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
+}
+
+// ownedSession loads a hotseat session scoped to the calling account. Sessions
+// belonging to another account read as missing, so a leaked session ID does not
+// expose anybody else's playtest.
+func (a *API) ownedSession(w http.ResponseWriter, r *http.Request, user *identity.User, sessionID string) (*game.GameSession, bool) {
+	session, err := a.store.GetSession(r.Context(), sessionID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+		return nil, false
+	}
+	if session == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session not found", "check the session ID")
+		return nil, false
+	}
+	return session, true
 }
 
 func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessionID, command string) {
@@ -1014,13 +1035,15 @@ func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessi
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed", "use POST")
 		return
 	}
-	session, err := a.store.GetSession(r.Context(), sessionID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load session", "try again later")
+	user, ok := a.requireAccount(w, r)
+	if !ok {
 		return
 	}
-	if session == nil {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "session not found", "check the session ID")
+	if !requireCSRF(w, r) {
+		return
+	}
+	session, ok := a.ownedSession(w, r, user, sessionID)
+	if !ok {
 		return
 	}
 
@@ -1064,7 +1087,7 @@ func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessi
 		return
 	}
 
-	if err := a.store.SaveSession(r.Context(), session); err != nil {
+	if err := a.store.SaveSession(r.Context(), user.ID, session); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not save session", "try again later")
 		return
 	}

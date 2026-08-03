@@ -785,16 +785,10 @@ func (s fakeStore) Close() {}
 
 func (s fakeStore) Ping(context.Context) error { return s.pingErr }
 
-func (fakeStore) ListGames(context.Context) ([]storage.GameSummary, error) { return nil, nil }
+func (fakeStore) SaveSession(context.Context, string, *game.GameSession) error { return nil }
 
-func (fakeStore) GetGame(context.Context, string) (*game.GameDefinition, error) { return nil, nil }
-
-func (fakeStore) CreateGame(context.Context, *game.GameDefinition) error { return nil }
-
-func (fakeStore) UpdateGame(context.Context, *game.GameDefinition) error { return nil }
-
-func (fakeStore) SaveSession(context.Context, *game.GameSession) error { return nil }
-
-func (fakeStore) GetSession(context.Context, string) (*game.GameSession, error) { return nil, nil }
+func (fakeStore) GetSession(context.Context, string, string) (*game.GameSession, error) {
+	return nil, nil
+}
 
 var _ storage.Store = fakeStore{}

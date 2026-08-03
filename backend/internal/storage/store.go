@@ -13,13 +13,15 @@ type GameSummary struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+// Store is the persistence surface the HTTP API is allowed to reach directly.
+// Game rows are deliberately absent: every read and write of a game definition
+// must go through the catalog service so that ownership is always enforced.
 type Store interface {
 	Close()
 	Ping(context.Context) error
-	ListGames(context.Context) ([]GameSummary, error)
-	GetGame(context.Context, string) (*game.GameDefinition, error)
-	CreateGame(context.Context, *game.GameDefinition) error
-	UpdateGame(context.Context, *game.GameDefinition) error
-	SaveSession(context.Context, *game.GameSession) error
-	GetSession(context.Context, string) (*game.GameSession, error)
+	SaveSession(ctx context.Context, ownerUserID string, session *game.GameSession) error
+	// GetSession returns the session only when ownerUserID owns it, and
+	// (nil, nil) otherwise, so callers cannot distinguish "not yours" from
+	// "does not exist".
+	GetSession(ctx context.Context, id, ownerUserID string) (*game.GameSession, error)
 }

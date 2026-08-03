@@ -25,17 +25,67 @@ func TestStoreRoundTripsGameAndSession(t *testing.T) {
 		t.Fatalf("GetGame() = %#v, want game %q", loaded, definition.ID)
 	}
 
+	owner := newTestOwner(t, store, "round-trip@example.com")
 	session := game.StartSession(definition, []game.PlayerConfig{{Name: "Alice", Color: "#111111"}, {Name: "Bob", Color: "#222222"}})
-	if err := store.SaveSession(ctx, session); err != nil {
+	if err := store.SaveSession(ctx, owner, session); err != nil {
 		t.Fatalf("SaveSession() error = %v", err)
 	}
-	loadedSession, err := store.GetSession(ctx, session.ID)
+	loadedSession, err := store.GetSession(ctx, session.ID, owner)
 	if err != nil {
 		t.Fatalf("GetSession() error = %v", err)
 	}
 	if loadedSession == nil || loadedSession.ID != session.ID || loadedSession.GameID != definition.ID {
 		t.Fatalf("GetSession() = %#v, want session %q", loadedSession, session.ID)
 	}
+}
+
+func TestStoreSessionsAreReadableOnlyByTheirOwner(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	definition := testDefinition("postgres-session-owner")
+	if err := store.CreateGame(ctx, definition); err != nil {
+		t.Fatalf("CreateGame() error = %v", err)
+	}
+
+	owner := newTestOwner(t, store, "owner@example.com")
+	intruder := newTestOwner(t, store, "intruder@example.com")
+	session := game.StartSession(definition, []game.PlayerConfig{{Name: "Alice", Color: "#111111"}, {Name: "Bob", Color: "#222222"}})
+	if err := store.SaveSession(ctx, owner, session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	loaded, err := store.GetSession(ctx, session.ID, intruder)
+	if err != nil {
+		t.Fatalf("GetSession() error = %v", err)
+	}
+	if loaded != nil {
+		t.Fatalf("GetSession() for a different account = %#v, want nil", loaded)
+	}
+
+	if err := store.SaveSession(ctx, intruder, session); err == nil {
+		t.Fatal("SaveSession() by a different account succeeded, want ownership error")
+	}
+
+	stillOwned, err := store.GetSession(ctx, session.ID, owner)
+	if err != nil {
+		t.Fatalf("GetSession() error = %v", err)
+	}
+	if stillOwned == nil {
+		t.Fatal("owner lost access to their own session")
+	}
+}
+
+func newTestOwner(t *testing.T, store *Store, email string) string {
+	t.Helper()
+	var id string
+	err := store.pool.QueryRow(context.Background(), `
+		INSERT INTO users (email, password_hash, display_name)
+		VALUES ($1, 'x', 'Test owner')
+		RETURNING id`, email).Scan(&id)
+	if err != nil {
+		t.Fatalf("create test owner: %v", err)
+	}
+	return id
 }
 
 func TestStoreUpdateIncrementsVersion(t *testing.T) {
@@ -78,7 +128,7 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("lock test database: %v", err)
 	}
 	t.Cleanup(release)
-	if _, err := store.pool.Exec(context.Background(), `TRUNCATE sessions, games CASCADE`); err != nil {
+	if _, err := store.pool.Exec(context.Background(), `TRUNCATE sessions, games, users CASCADE`); err != nil {
 		t.Fatalf("clear test tables: %v", err)
 	}
 	return store

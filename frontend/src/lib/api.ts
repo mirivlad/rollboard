@@ -1,4 +1,4 @@
-import type { CatalogGame, GameDefinition, GameSession, GameSummary, GameVersion, PlayerConfig, Principal, PublicUser, Room, RoomMember, RoomMessage } from './types';
+import type { CatalogGame, GameDefinition, GameSession, GameVersion, PlayerConfig, Principal, PublicUser, Room, RoomMember, RoomMessage } from './types';
 
 const BASE = '/api';
 
@@ -32,10 +32,6 @@ export const api = {
     return request('/health');
   },
 
-  listGames(): Promise<GameSummary[]> {
-    return request('/games');
-  },
-
   listOwnedGames(): Promise<CatalogGame[]> { return request('/games'); },
   listPublishedVersions(): Promise<GameVersion[]> { return request('/games/versions'); },
 
@@ -59,24 +55,6 @@ export const api = {
   listRoomMessages(id: string): Promise<RoomMessage[]> { return request(`/rooms/${id}/messages`); },
   muteRoomMember(roomID: string, memberID: string, muted: boolean): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }); },
   removeRoomMember(roomID: string, memberID: string): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}`, { method: 'DELETE' }); },
-
-  getGame(id: string): Promise<GameDefinition> {
-    return request(`/games/${id}`);
-  },
-
-  createGame(g: GameDefinition): Promise<GameDefinition> {
-    return request('/games', {
-      method: 'POST',
-      body: JSON.stringify(g),
-    });
-  },
-
-  updateGame(id: string, g: GameDefinition): Promise<GameDefinition> {
-    return request(`/games/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(g),
-    });
-  },
 
   validateGame(id: string): Promise<{ valid: boolean; errors?: string[] }> {
     return request(`/games/${id}/validate`, { method: 'POST' });

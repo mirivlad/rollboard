@@ -94,7 +94,13 @@ func (s *Service) CreateGame(ctx context.Context, ownerID string, definition gam
 }
 
 func (s *Service) SaveDraft(ctx context.Context, ownerID, gameID string, definition game.GameDefinition) error {
+	// The identity and version of a draft belong to the server. A client that
+	// omits them (or sends somebody else's) must not be able to store a draft
+	// that later fails the sessions.game_version check or points at another game.
 	definition.ID = gameID
+	if definition.Version < 1 {
+		definition.Version = 1
+	}
 	raw, err := json.Marshal(definition)
 	if err != nil {
 		return fmt.Errorf("encode draft: %w", err)

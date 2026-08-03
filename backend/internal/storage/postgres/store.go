@@ -121,27 +121,36 @@ func (s *Store) UpdateGame(ctx context.Context, definition *game.GameDefinition)
 	return nil
 }
 
-func (s *Store) SaveSession(ctx context.Context, session *game.GameSession) error {
+func (s *Store) SaveSession(ctx context.Context, ownerUserID string, session *game.GameSession) error {
 	raw, err := json.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	_, err = s.pool.Exec(ctx, `
-		INSERT INTO sessions (id, game_id, game_version, session_json)
-		VALUES ($1, $2, $3, $4::jsonb)
+	// The owner predicate on UPDATE keeps a second account from overwriting a
+	// session it does not own even if it learns the session ID.
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO sessions (id, game_id, game_version, session_json, owner_user_id)
+		VALUES ($1, $2, $3, $4::jsonb, $5)
 		ON CONFLICT (id) DO UPDATE
 		SET game_version = EXCLUDED.game_version,
 			session_json = EXCLUDED.session_json,
-			updated_at = now()`, session.ID, session.GameID, session.GameVersion, string(raw))
+			updated_at = now()
+		WHERE sessions.owner_user_id = EXCLUDED.owner_user_id`,
+		session.ID, session.GameID, session.GameVersion, string(raw), ownerUserID)
 	if err != nil {
 		return fmt.Errorf("save session: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("save session: not owned by the requesting account")
 	}
 	return nil
 }
 
-func (s *Store) GetSession(ctx context.Context, id string) (*game.GameSession, error) {
+func (s *Store) GetSession(ctx context.Context, id, ownerUserID string) (*game.GameSession, error) {
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `SELECT session_json FROM sessions WHERE id = $1`, id).Scan(&raw)
+	err := s.pool.QueryRow(ctx,
+		`SELECT session_json FROM sessions WHERE id = $1 AND owner_user_id = $2`,
+		id, ownerUserID).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
