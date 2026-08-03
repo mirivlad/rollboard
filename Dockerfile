@@ -3,6 +3,10 @@ WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# English is imported from the repository-root catalogs as the bundled
+# fallback, so this stage needs them too. The path mirrors the repository
+# layout: WORKDIR is /src/frontend, so the root is /src.
+COPY locales/ /src/locales/
 RUN npm run build
 
 FROM golang:1.24-alpine AS backend-build
