@@ -54,7 +54,7 @@ Notes:
 1. **Turn not advancing after normal roll** — `MoveCurrentPlayer` called `advanceTurn()` only for bankrupt players and after pending action resolution. Normal rolls without pending action never advanced the turn, causing the same player to roll repeatedly.
    - **Fixed**: Added `s.advanceTurn()` at end of `MoveCurrentPlayer` when `s.State.PendingAction == nil`.
 
-2. **Backend crashes silently on DB open failure** — When stale `-shm`/`-wal` SQLite files exist from a crashed backend, the new instance fails with "unable to open database file". The `log.Fatalf` exits without a user-friendly error.
+2. **Backend crashes silently on DB open failure** — historical note from the SQLite prototype. Rollboard now uses PostgreSQL, and a bad connection URL is rejected at startup with a named configuration error.
    - **Mitigation**: Remove stale DB files before restarting. A more robust fix would need better error handling/recovery.
 
 3. **DELETE endpoint missing** — Calling DELETE on `/api/games/{id}` crashes the backend (no handler registered). The frontend doesn't use it, but the API spec might need it later.

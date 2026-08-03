@@ -1,323 +1,308 @@
-# Rollboard — self-hostable turn-based board-game platform
+# Rollboard
 
-A browser-based platform for creating and running generic turn-based board games.
-Backend in Go, frontend in Svelte + Vite + TypeScript, durable storage in PostgreSQL.
+**A self-hostable platform for building and playing turn-based board games in the browser.**
 
-Game logic is defined entirely through data (ActionDefinition lists), not hardcoded in the runtime.
-This makes the engine generic — adding a new game type requires only a JSON definition, not backend code changes.
+Rollboard is a generic engine, not a Monopoly clone. A game is *data* — a board
+graph plus a list of actions — so adding a new game means writing a definition,
+never backend code. Build a board in the visual editor, publish an immutable
+version, open a room, and play with other people in real time.
 
-## What's Implemented
+Go backend · Svelte 5 frontend · PostgreSQL · Redis · Docker
 
-- Visual board editor (add/delete/move cells, draw edges, edit properties)
-- Directed-graph movement (cells are nodes, edges define paths)
-- Generic ActionDefinition runtime (all game logic via data)
-- Hotseat mode (pass-device play with explicit turn screens)
-- Universal resource display (all keys from player.resources)
-- Universal pending action UI (any option list rendered generically)
-- Two built-in demos:
-  - **Mini-Monopoly**: property purchase, rent collection, bonus/penalty cells
-  - **Dungeon Race**: health, gold, keys, traps, treasure, heal, finish line
-  - **Branching Demo**: dice-based even/odd branching routes
-  - **Manual Branch Demo**: player-chosen paths with resource costs
-- Game persistence via PostgreSQL
-- Account registration, guest entry, opaque cookie sessions and CSRF protection
-- Private drafts and immutable published game versions
-- Multiplayer rooms pinned to a published version, guest joins and host moderation
-- Server-authoritative room start/roll/action processing over authenticated WebSocket
-- Persisted room-only chat with mute enforcement
-- Validation of game definitions
-- Event log for all game actions
-- Player elimination (bankruptcy)
-- Configurable start pass-through bonus
-- **Edge conditions**: dice_total_even, dice_total_odd, manual_choice, pay_resource, player_resource_at_least
-- **Branching routes**: route_choice pending action for player-selected paths
+![Sign in](docs/screenshots/sign-in.png)
 
-## Requirements
+---
 
-- **Go** 1.22+ ([download](https://go.dev/dl/))
-- **Node.js** 20+ ([download](https://nodejs.org/))
-- **npm** (ships with Node.js)
-- Docker Compose plugin for local PostgreSQL and Redis services.
+## Contents
 
-## Quick Start
+- [What it does](#what-it-does)
+- [Screenshots](#screenshots)
+- [Quick start](#quick-start)
+- [Deploying for real](#deploying-for-real)
+- [Configuration](#configuration)
+- [Translating](#translating)
+- [How a game is defined](#how-a-game-is-defined)
+- [Development](#development)
+- [Current limitations](#current-limitations)
+- [License](#license)
+
+---
+
+## What it does
+
+- **Visual board editor** — place cells, draw directed edges, edit properties and actions.
+- **Data-driven rules** — behaviour comes from `ActionDefinition` lists, not from code.
+- **Directed-graph movement** — boards are graphs, so branching routes and one-way paths work.
+- **Accounts and guests** — authors register; players can join a room without an account.
+- **Private drafts, immutable published versions** — a room is pinned to a version, so a live game never changes underneath its players.
+- **Real-time multiplayer rooms** — server-authoritative dice and movement over WebSocket, with room chat and host moderation.
+- **Hotseat playtest** — pass one device around, with explicit turn screens.
+- **Two languages, more without rebuilding** — see [Translating](#translating).
+- **Light and dark themes**, keyboard accessible, works down to phone width.
+
+The server is always authoritative. The browser sends intentions ("I want to
+roll"), never results.
+
+## Screenshots
+
+**Author workspace** — private drafts and starting templates.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+**Board editor** — the board is a graph; edges carry conditions.
+
+![Editor](docs/screenshots/editor.png)
+
+**Cell inspector** — properties, fields and the visual action editor.
+
+![Editor inspector](docs/screenshots/editor-inspector.png)
+
+**Playtest** — dice, movement along the graph, and a choice produced entirely by the game's data.
+
+![Playtest](docs/screenshots/playtest.png)
+
+**Multiplayer room** — roster, chat and server-authoritative play.
+
+![Room](docs/screenshots/room.png)
+
+**On a phone**, and with a visible keyboard focus ring.
+
+<p>
+  <img src="docs/screenshots/editor-mobile.png" alt="Editor on mobile" width="240">
+  <img src="docs/screenshots/keyboard-focus.png" alt="Keyboard focus ring" width="480">
+</p>
+
+## Quick start
+
+You need **Docker** with the Compose plugin. Nothing else.
 
 ```bash
-# Clone the repo (once available)
-git clone <repo-url>
+git clone https://github.com/mirivlad/rollboard.git
 cd rollboard
+docker compose up --build
+```
 
-# Install frontend dependencies
+Open <http://localhost:8080>, create an account, and pick a template.
+
+That single command builds the image and starts PostgreSQL, Redis and the
+application. Migrations run automatically on startup.
+
+### Running from source instead
+
+For development you also need **Go 1.24+** and **Node.js 20+**:
+
+```bash
 cd frontend && npm install && cd ..
-
-# Start local PostgreSQL/Redis plus backend and frontend
 ./scripts/dev.sh
 ```
 
-Or use Make:
+This starts PostgreSQL and Redis in Docker, the Go backend on `:8080`, and the
+Vite dev server on <http://localhost:5173>.
+
+## Deploying for real
+
+`docker compose up` is fine for trying Rollboard out, but it is not a public
+deployment. For that:
+
+### 1. Use the deployment stack
+
+[`deploy/portainer-stack.yaml`](deploy/portainer-stack.yaml) pulls a published
+image instead of building, and refuses to start without a database password and
+an application origin.
 
 ```bash
-make dev       # Start both backend and frontend
+export POSTGRES_PASSWORD='a long random string'
+export ROLLBOARD_APP_ORIGIN='https://rollboard.example.com'
+docker compose -f deploy/portainer-stack.yaml up -d
 ```
 
-Open http://localhost:5173 in a browser.
+It also works as a Portainer stack: paste the file, set the same variables.
 
-## Make Commands
+### 2. Put it behind TLS
 
-| Command        | Description                        |
-|----------------|------------------------------------|
-| `make dev`     | Start backend + frontend together  |
-| `make backend` | Start backend server only          |
-| `make frontend`| Start frontend dev server only     |
-| `make test`    | Run backend tests                  |
-| `make check`   | Run backend tests + frontend build |
-| `make smoke`   | Run PostgreSQL-backed smoke tests |
-| `make clean`   | Remove build artifacts and data    |
-| `make build`   | Build production binaries          |
+Rollboard does not terminate TLS. Run it behind a reverse proxy and let that
+handle certificates. The application only needs `ROLLBOARD_APP_ORIGIN` to match
+the public URL, because that value drives both CORS and the WebSocket origin
+check.
 
-## Environment Variables
+An example with Caddy:
 
-| Variable            | Default                  | Description            |
-|---------------------|--------------------------|------------------------|
-| `ROLLBOARD_ADDR`    | `127.0.0.1:8080`         | Backend listen address |
-| `ROLLBOARD_DATABASE_URL` | `postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable` | PostgreSQL connection URL |
-| `ROLLBOARD_DATABASE_MAX_CONNS` | `20` | Maximum PostgreSQL connections per application replica |
-| `ROLLBOARD_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection URL |
-
-Set these in a `.env` file (not committed) or export them in your shell:
-
-```env
-ROLLBOARD_ADDR=127.0.0.1:8080
-ROLLBOARD_DATABASE_URL=postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable
-ROLLBOARD_DATABASE_MAX_CONNS=20
-ROLLBOARD_REDIS_URL=redis://127.0.0.1:6379/0
+```caddyfile
+rollboard.example.com {
+    reverse_proxy localhost:8080
+}
 ```
 
-## How to Use
+**Set `ROLLBOARD_COOKIE_SECURE=true` whenever the site is served over HTTPS.**
+Session cookies are otherwise sent over plain HTTP too.
 
-### Open the UI
+### 3. Back up PostgreSQL
 
-1. Run `./scripts/dev.sh`
-2. Open http://localhost:5173
+Everything durable lives in PostgreSQL: accounts, drafts, published versions,
+rooms and the event journal. Redis carries only cross-process fan-out and can
+be lost without data loss.
 
-### Create and publish a game
+```bash
+docker compose exec -T postgres pg_dump -U rollboard rollboard | gzip > rollboard-backup.sql.gz
+```
 
-1. Create an account — guests can join rooms but cannot publish games.
-2. In **Your games**, choose **Blank board**, **Mini-Monopoly**, or **Dungeon Race**.
-3. The default guided step sets the title and dice; select **Advanced studio** before choosing a template to open the full editor immediately.
-4. Edit the definition, save the private draft, then select **Publish**.
-5. Open **Rooms**, select the published version, and create a room.
-6. Share the displayed room ID with other players. They may join as guests.
+To restore:
 
-### Run an online room
+```bash
+gunzip -c rollboard-backup.sql.gz | docker compose exec -T postgres psql -U rollboard rollboard
+```
 
-1. The account that created the room starts it after at least two players join.
-2. Only the current player sees **Roll dice**; the browser sends an intention and the server returns the result.
-3. If the engine creates a choice, only the player named by the server can choose an option.
-4. Use the room chat for the current room. The host can mute/unmute or remove other members from the room roster; the server enforces those permissions.
+### 4. Upgrading
 
-### Run a Hotseat Playtest
+```bash
+docker compose pull
+docker compose up -d
+```
 
-1. After creating and saving a game, click **Playtest**
-2. Choose the number of players (2–6) and customize names/colors
-3. Click **Start Playtest**
-4. Turn intro screen shows whose turn it is → click **Start Turn**
-5. Dice roll happens automatically → movement follows the graph
-6. If an action is required (e.g., buy property), buttons appear
-7. After the turn, click **Pass to Next Player**
-8. Repeat until the game ends
+Migrations are applied on startup inside a transaction, guarded by an advisory
+lock, so several replicas starting at once is safe. **Take a backup first
+anyway** — migrations are not reversible.
 
-## ActionDefinition System
+## Configuration
 
-Every cell can define `onLand` and `onPass` action lists — sequences of `ActionDefinition` objects that the engine executes when a player lands on or passes that cell.
+All configuration is environment variables. Copy [`.env.example`](.env.example)
+as a starting point.
 
-Actions can:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ROLLBOARD_ADDR` | `127.0.0.1:8080` | Listen address. The image sets `0.0.0.0:8080`. |
+| `ROLLBOARD_DATABASE_URL` | `postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable` | PostgreSQL connection URL. |
+| `ROLLBOARD_DATABASE_MAX_CONNS` | `20` | Maximum pooled connections **per replica**. |
+| `ROLLBOARD_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis URL, used for cross-replica fan-out only. |
+| `ROLLBOARD_APP_ORIGIN` | `http://127.0.0.1:5173` | Public origin. Drives CORS and the WebSocket origin check. **Must match your real URL.** |
+| `ROLLBOARD_COOKIE_SECURE` | `false` | Set to `true` behind HTTPS. |
+| `ROLLBOARD_SESSION_TTL` | `720h` | Session lifetime, as a Go duration. |
+| `ROLLBOARD_AUTH_RATE_LIMIT` | `10` | Credential attempts per minute, per source IP, per replica. |
+| `ROLLBOARD_LOCALES_DIR` | unset (`/app/locales` in the image) | Translation catalogs. |
+| `ROLLBOARD_STATIC_DIR` | unset (`/app/frontend` in the image) | Built frontend to serve. Leave unset in development, where Vite serves it. |
 
-- Modify resources (gain, lose, transfer)
-- Offer choices via `offer_choice` with `options` containing follow-up `then` actions
-- Branch on cell ownership (`if_cell_unowned`, `if_cell_owned_by_current`, `if_cell_owned_by_other`)
-- Branch on resource values (`if_resource_ge`)
-- End the game (`finish_game`)
-- Log messages (`log_message`)
+Invalid values fail at startup with a clear message rather than at first use.
 
-### Supported Action Types
+## Translating
 
-| Type | Fields | Description |
-|------|--------|-------------|
-| `gain_resource` | `resource`, `amount`/`amountField` | Add to player's resource |
-| `lose_resource` | `resource`, `amount`/`amountField` | Subtract from player's resource |
-| `transfer_resource` | `resource`, `amount`/`amountField`, `target` (`"owner"` or `"current"`) | Transfer resource between players |
-| `offer_choice` | `title`, `options` (array of `{id, title, then}`) | Present player with a choice; `then` executes on selection |
-| `set_cell_owner` | `target` (`"current"`, `"owner"`, or a player ID) | Set ownership of the current cell |
-| `if_cell_unowned` | `then`, `else` | Branch if current cell has no owner |
-| `if_cell_owned_by_current` | `then`, `else` | Branch if current player owns the cell |
-| `if_cell_owned_by_other` | `then`, `else` | Branch if another player owns the cell |
-| `if_resource_ge` | `resource`, `amount`, `then`, `else` | Branch if player has ≥ amount of resource |
-| `finish_game` | — | End the game; current player wins |
-| `log_message` | `title` (message) | Add a log entry without modifying state |
-| `launch_minigame` | `miniGame` | Reserved for a pinned sandboxed module; publication is rejected until the isolated runner is implemented |
+The interface ships in **English** and **Russian**. Catalogs are plain JSON read
+from disk at request time, so adding a language needs **no image rebuild and no
+code change**:
 
-### Example: Property Buy/Rent
+```bash
+cp locales/en.json locales/de.json
+```
+
+Translate the values, then restart the application. The language appears in the
+switcher by itself. Untranslated keys fall back to English, so a partial
+translation is useful immediately.
+
+Full details, including plural forms and how to translate server error
+messages, are in **[docs/I18N.md](docs/I18N.md)**.
+
+## How a game is defined
+
+A game is a board (cells and directed edges) plus rules (dice, resources, cell
+types). Every cell can carry `onLand` and `onPass` action lists that the engine
+executes generically.
 
 ```json
 {
   "type": "if_cell_unowned",
-  "then": [
-    {
-      "type": "offer_choice",
-      "title": "Buy this property for $100?",
-      "options": [
-        {
-          "id": "buy",
-          "title": "Buy ($100)",
-          "then": [
-            { "type": "lose_resource", "resource": "money", "amount": 100 },
-            { "type": "set_cell_owner", "target": "current" }
-          ]
-        },
-        {
-          "id": "skip",
-          "title": "Don't Buy",
-          "then": []
-        }
-      ]
-    }
-  ],
-  "else": [
-    {
-      "type": "if_cell_owned_by_other",
-      "then": [
-        { "type": "transfer_resource", "resource": "money", "amount": 20, "target": "owner" }
-      ]
-    }
-  ]
+  "then": [{
+    "type": "offer_choice",
+    "title": "Buy this property for 100?",
+    "options": [
+      { "id": "buy", "title": "Buy (100)", "then": [
+        { "type": "lose_resource", "resource": "money", "amount": 100 },
+        { "type": "set_cell_owner", "target": "current" }
+      ]},
+      { "id": "skip", "title": "Don't buy", "then": [] }
+    ]
+  }],
+  "else": [{
+    "type": "if_cell_owned_by_other",
+    "then": [{ "type": "transfer_resource", "resource": "money", "amount": 20, "target": "owner" }]
+  }]
 }
 ```
 
+That snippet is the whole of "property purchase and rent". There is no property
+code in the engine.
+
+**Action types:** `gain_resource`, `lose_resource`, `transfer_resource`,
+`set_cell_owner`, `offer_choice`, `if_cell_unowned`, `if_cell_owned_by_current`,
+`if_cell_owned_by_other`, `if_resource_ge`, `finish_game`, `log_message`.
+
+**Edge conditions:** `always`, `dice_total_even`, `dice_total_odd`,
+`dice_total_in`, `manual_choice`, `pay_resource`, `player_resource_at_least`.
+
+The engine model, the session flow and the branching rules are described in
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+## Development
+
+| Command | What it does |
+|---------|--------------|
+| `make dev` | PostgreSQL, Redis, backend and frontend together |
+| `make test` | Full Go suite **with integration tests against real PostgreSQL and Redis** |
+| `make test-unit` | Unit tests only, no Docker needed |
+| `make check` | gofmt, vet, the Go suite, svelte-check, vitest, frontend build, demo validation |
+| `make smoke` | End-to-end API smoke test |
+| `make fmt` | gofmt the backend |
+| `make build` | Production binaries |
+| `./scripts/ui-shots.sh` | Drive a real browser and regenerate the screenshots |
+
+`make test` requires Docker, and refuses to run against anything but the
+`rollboard_test` database, because the integration tests truncate tables.
+
+CI runs the same checks on every push and fails if any test *skips* — a suite
+that silently skips its integration tests reports success while proving
+nothing.
+
+Project conventions are in [AGENTS.md](AGENTS.md); contribution guidance is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Current limitations
 
-- The author dashboard reloads private drafts and owned published versions. Public catalog discovery/search and shareable invite links are still planned.
-- Redis Pub/Sub fans accepted room snapshots, transitions and chat events out to every app replica. Each `start`, `roll`, `action` and `chat` intent carries a client UUID: PostgreSQL returns the stored result for retries instead of applying it twice. Reconnects replay at most 64 contiguous persisted events; a missing, pruned or longer range safely falls back to the current PostgreSQL snapshot. Presence and rate limiting are still planned.
-- Browser verification covers two simultaneous clients creating/joining a room, live roster updates, starting, rolling, resolving a purchase choice and room chat; wider responsive-device coverage is still required before release.
-- No bot players — all players must be human.
-- No image file uploads — image URLs only
-- No undo / rollback
-- No property upgrades, mortgaging, or trading
-- No complex dice rules — single dice rule per game
-- No OAuth or arbitrary author-supplied code.
-- Mini-game module metadata and a typed `launch_minigame` reference are reserved, but no mini-game runner is enabled yet. This deliberately prevents untrusted mini-game code from running in the application process.
+Stated plainly, so you can judge whether Rollboard fits before deploying it:
 
-## Project Structure
+- **No public game discovery.** Rooms are shared by ID; there is no browsable catalogue or invite link.
+- **No presence indicator.** You cannot see who is currently connected, only who is a member.
+- **Rate limiting is per replica.** Behind N replicas the effective ceiling is N times the configured limit.
+- **No bots.** Every player must be a human.
+- **No undo.** The event journal records what happened but cannot roll it back.
+- **Journal retention is unbounded.** Pruning policy is not implemented; busy deployments will want one.
+- **No load testing has been done.** Treat capacity claims as unproven.
+- **Images are URLs only.** There are no file uploads.
+- **No OAuth**, and no author-supplied code of any kind.
+- **Mini-games are reserved but not runnable.** `launch_minigame` is a typed, versioned placeholder that publication deliberately rejects, so untrusted code cannot execute in the application process.
 
-```
-├── Makefile
-├── backend/
-│   ├── cmd/server/main.go            # Entry point
-│   └── internal/
-│       ├── game/                      # Generic definition, runtime and validation
-│       ├── httpapi/                   # HTTP and WebSocket handlers
-│       ├── identity/                  # Accounts, guests and sessions
-│       ├── catalog/                   # Drafts and immutable versions
-│       ├── room/                      # Rooms, membership, chat and moderation
-│       ├── realtime/                  # Sequenced WebSocket room hub
-│       └── storage/postgres/          # PostgreSQL migrations and storage
-├── frontend/
-│   ├── src/
-│   │   ├── App.svelte                # Main app shell + navigation
-│   │   ├── lib/
-│   │   │   ├── types.ts              # TypeScript interfaces
-│   │   │   ├── api.ts                # API client
-│   │   │   └── defaults.ts           # Demo definitions + default game
-│   │   └── components/
-│   │       ├── BoardEditor.svelte     # Editor layout + toolbar
-│   │       ├── BoardCanvas.svelte     # Canvas with cells, edges, players
-│   │       ├── CellView.svelte        # Single cell rendering
-│   │       ├── EdgeLayer.svelte       # SVG edge arrows
-│   │       ├── CellInspector.svelte   # Right panel for cell editing
-│   │       ├── PlaytestPanel.svelte   # Hotseat playtest UI
-│   │       ├── RoomLobby.svelte       # Create/join room UI
-│   │       └── RoomPlay.svelte        # Realtime room and chat UI
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── index.html
-├── scripts/
-│   ├── dev.sh                        # Start backend + frontend
-│   ├── backend.sh                    # Start backend only
-│   ├── frontend.sh                   # Start frontend only
-│   ├── check.sh                      # Run tests + build
-│   └── smoke.sh                      # Backend smoke test
-└── .env.example
-```
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/games` | List saved games |
-| POST | `/api/games` | Create a new game |
-| GET | `/api/games/{id}` | Get game definition |
-| PUT | `/api/games/{id}` | Update game definition |
-| POST | `/api/games/{id}/validate` | Validate game definition |
-| POST | `/api/games/{id}/playtest` | Start hotseat playtest session (`{players: [{name, color}]}`) |
-| GET | `/api/sessions/{id}` | Get current session state |
-| POST | `/api/sessions/{id}/roll` | Roll dice and move current player |
-| POST | `/api/sessions/{id}/actions` | Resolve pending action (`{actionId}`) |
-| POST | `/api/auth/register` | Register an account and create a session |
-| POST | `/api/auth/guest` | Create a guest session |
-| GET | `/api/games` | List the authenticated author's drafts |
-| GET | `/api/games/versions` | List the authenticated author's published versions |
-| POST | `/api/rooms` | Create a room pinned to a published version |
-| GET | `/api/rooms/{id}` | Get room state (room members only) |
-| POST | `/api/rooms/{id}/join` | Join a room |
-| GET | `/api/rooms/{id}/ws` | Authenticated realtime room connection |
+The current state, including exactly what has been verified and how, is tracked
+in [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md).
 
 ## Troubleshooting
 
-### Backend port busy
-
-```
-Error: listen tcp 127.0.0.1:8080: bind: address already in use
-```
-
-Kill the old process or change `ROLLBOARD_ADDR`:
+**Port already in use.** Change `ROLLBOARD_ADDR`, or stop whatever holds the
+port:
 
 ```bash
 lsof -ti :8080 | xargs kill -9
-export ROLLBOARD_ADDR=127.0.0.1:8081
-./scripts/backend.sh
 ```
 
-### Frontend port busy
+**WebSocket fails to connect, or requests are blocked by CORS.**
+`ROLLBOARD_APP_ORIGIN` does not match the URL you are actually using. It drives
+both checks.
 
-```
-Error: listen tcp 127.0.0.1:5173: bind: address already in use
-```
+**Sign-in appears to succeed but you are immediately signed out.**
+`ROLLBOARD_COOKIE_SECURE=true` while serving over plain HTTP; the browser
+discards the cookie.
 
-Kill the old process:
-
-```bash
-lsof -ti :5173 | xargs kill -9
-```
-
-Or edit `frontend/vite.config.ts` to change the port.
-
-### Database connection issue
-
-Rollboard requires PostgreSQL. Check that the local Compose service is healthy:
+**Database connection refused.** Check the service is healthy:
 
 ```bash
 docker compose ps postgres
 docker compose logs postgres
-```
-
-For a remote database, set `ROLLBOARD_DATABASE_URL` to a valid PostgreSQL URL and restart the backend.
-
-### node_modules missing
-
-If the frontend build fails with module-not-found errors:
-
-```bash
-cd frontend && npm install && cd ..
 ```
 
 ## License

@@ -22,11 +22,12 @@ Rollboard is not a hardcoded Monopoly clone. It is a generic engine for games su
 The project uses:
 
 * Go backend;
-* Svelte + Vite + TypeScript frontend;
-* SQLite storage;
+* Svelte 5 + Vite + TypeScript frontend;
+* PostgreSQL storage, with Redis for cross-replica fan-out;
 * visual board editor;
-* hotseat playtest;
-* generic action-based runtime.
+* hotseat playtest and authoritative multiplayer rooms;
+* generic action-based runtime;
+* runtime-loaded translation catalogs.
 
 ---
 
@@ -38,7 +39,9 @@ Before making changes, read:
 2. `docs/CURRENT_STATE.md` — current checkpoint, active blockers, what not to start yet.
 3. `docs/ARCHITECTURE.md` — engine model, GameDefinition, runtime concepts.
 4. `docs/PLAYTEST_CHECKLIST.md` — browser/manual validation checklist.
-5. `README.md` — user-facing run instructions.
+5. `README.md` — user-facing run and deployment instructions.
+6. `CONTRIBUTING.md` — workflow, testing rules and style.
+7. `docs/I18N.md` — how translations load and how to add one.
 
 If any of these files are missing, create or update them as part of the work.
 
