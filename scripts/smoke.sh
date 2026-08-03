@@ -55,10 +55,18 @@ csrf_token="$(awk '$6 == "rollboard_csrf" {print $7}' "$COOKIE_JAR")"
 created_game="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games")"
 game_id="$(printf '%s' "$created_game" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
 [[ -n "$game_id" ]]
-loaded_game="$(curl --noproxy '*' --fail --silent --show-error "http://$ADDR/api/games/$game_id")"
+# Reading and validating a game is owner-scoped, so both calls carry the
+# author's session. An unauthenticated caller must not be able to do either.
+loaded_game="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" "http://$ADDR/api/games/$game_id/draft")"
 [[ "$loaded_game" == *"\"id\":\"$game_id\""* ]]
-validation="$(curl --noproxy '*' --fail --silent --show-error --request POST "http://$ADDR/api/games/$game_id/validate")"
+validation="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST "http://$ADDR/api/games/$game_id/validate")"
 [[ "$validation" == *'"valid":true'* ]]
+
+# Regression guard: the same reads without a session must be refused.
+anonymous_draft_status="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "http://$ADDR/api/games/$game_id/draft")"
+[[ "$anonymous_draft_status" == "401" ]]
+anonymous_overwrite_status="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' --request PUT --header 'Content-Type: application/json' --data "$game" "http://$ADDR/api/games/$game_id")"
+[[ "$anonymous_overwrite_status" == "404" ]]
 published="$(curl --noproxy '*' --fail --silent --show-error --cookie "$COOKIE_JAR" --header "X-CSRF-Token: $csrf_token" --request POST "http://$ADDR/api/games/$game_id/publish")"
 version_id="$(printf '%s' "$published" | jq -r '.id')"
 [[ -n "$version_id" ]]

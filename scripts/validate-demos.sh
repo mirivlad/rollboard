@@ -114,9 +114,11 @@ validate_demo() {
     return 1
   fi
 
-  # Validate using the known game ID
+  # Validate using the known game ID. Validation is owner-scoped, so the
+  # session cookie and CSRF token are required.
   local validate_res
-  validate_res=$(curl -s -X POST "http://$ADDR/api/games/$game_id/validate" 2>/dev/null || echo '{"valid":false}')
+  validate_res=$(curl -s --cookie "$COOKIE_JAR" -H "X-CSRF-Token: $CSRF_TOKEN" \
+    -X POST "http://$ADDR/api/games/$game_id/validate" 2>/dev/null || echo '{"valid":false}')
   if echo "$validate_res" | grep -q '"valid":true'; then
     echo "  PASS: $name"
     return 0
