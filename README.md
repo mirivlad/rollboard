@@ -319,3 +319,17 @@ If the frontend build fails with module-not-found errors:
 ```bash
 cd frontend && npm install && cd ..
 ```
+
+## License
+
+Copyright (C) 2026 mirivlad
+
+Rollboard is free software: you can redistribute it and modify it under the
+terms of the **GNU Affero General Public License, version 3** as published by
+the Free Software Foundation. See [LICENSE](LICENSE) for the full text.
+
+The AGPL is chosen deliberately over the plain GPL because Rollboard is a
+network service. If you modify Rollboard and let other people use it over a
+network — including as a hosted or commercial offering — you must offer those
+users the source of your modified version under the same license. Running it
+privately or self-hosting it for your own players carries no such obligation.
