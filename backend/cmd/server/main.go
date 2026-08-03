@@ -76,7 +76,8 @@ func main() {
 			CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL,
 			WebSocketOriginPatterns: []string{appOrigin.Host},
 			RateLimit:               cfg.AuthRateLimit,
-		})
+		}).
+		WithLocales(httpapi.LocaleOptions{Dir: cfg.LocalesDir})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))

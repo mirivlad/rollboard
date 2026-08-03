@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { Room, RoomMessage } from '../lib/types';
   import { api } from '../lib/api';
+  import { errorMessage, i18n } from '../lib/i18n.svelte';
   import { confirmedRollPlayback, type RollPlayback } from '../lib/room-events';
   import { roomCommand } from '../lib/room-command';
   import { acceptsRoomSequence } from '../lib/room-sequence';
@@ -23,6 +24,7 @@
   let rolling = $state(false);
   let playbackTimer: ReturnType<typeof setTimeout> | undefined;
   let latestRoomSequence = $state(0);
+  let t = $derived(i18n.t);
 
   $effect(() => {
     currentRoom = room;
@@ -88,7 +90,7 @@
     playbackTimer = setTimeout(advancePlayback, 450);
   }
   function send(value: object) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) { error = 'Realtime connection is unavailable.'; return false; }
+    if (!socket || socket.readyState !== WebSocket.OPEN) { error = t('room.connectionUnavailable'); return false; }
     socket.send(JSON.stringify(value));
     return true;
   }
@@ -100,8 +102,8 @@
   }
   function submitMessage() { const body = message.trim(); if (!body) return; send(roomCommand('chat', { body })); message = ''; }
   async function refreshRoom() { currentRoom = await api.getRoom(currentRoom.id); onRoom(currentRoom); }
-  async function muteMember(memberID: string, muted: boolean) { error = ''; try { await api.muteRoomMember(currentRoom.id, memberID, muted); await refreshRoom(); } catch (cause) { error = cause instanceof Error ? `Moderation failed: ${cause.message}` : 'Moderation failed.'; } }
-  async function removeMember(memberID: string) { error = ''; try { await api.removeRoomMember(currentRoom.id, memberID); await refreshRoom(); } catch (cause) { error = cause instanceof Error ? `Moderation failed: ${cause.message}` : 'Moderation failed.'; } }
+  async function muteMember(memberID: string, muted: boolean) { error = ''; try { await api.muteRoomMember(currentRoom.id, memberID, muted); await refreshRoom(); } catch (cause) { error = errorMessage(t, cause); } }
+  async function removeMember(memberID: string) { error = ''; try { await api.removeRoomMember(currentRoom.id, memberID); await refreshRoom(); } catch (cause) { error = errorMessage(t, cause); } }
 
   onMount(() => {
     void api.listRoomMessages(room.id).then((value) => messages = value).catch(() => {});
@@ -110,7 +112,7 @@
     socket = ws;
     ws.onopen = () => connected = true;
     ws.onclose = () => connected = false;
-    ws.onerror = () => error = 'Realtime connection was interrupted.';
+    ws.onerror = () => error = t('room.connectionInterrupted');
     ws.onmessage = (event) => {
       const envelope = JSON.parse(event.data);
       if (envelope.type === 'room_state' && acceptsIncomingRoom(envelope)) { currentRoom = envelope.payload; onRoom(currentRoom); }
@@ -128,11 +130,11 @@
 </script>
 
 <section class="room-play">
-  <div class="top"><div><p class="eyebrow">{connected ? 'LIVE ROOM' : 'RECONNECTING'}</p><h1>{currentRoom.title}</h1><p>{currentRoom.members.length}/{currentRoom.maxPlayers} players · {currentRoom.status}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send(roomCommand('start'))}>Start game</button>{/if}</div>
+  <div class="top"><div><p class="eyebrow">{connected ? t('room.live') : t('room.reconnecting')}</p><h1>{currentRoom.title}</h1><p>{t('room.occupancy', { count: currentRoom.members.length, max: currentRoom.maxPlayers, status: t(`room.status.${currentRoom.status}`) })}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send(roomCommand('start'))}>{t('room.startGame')}</button>{/if}</div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <div class="layout">
-    <div class="game"><h2>{currentRoom.session ? `Turn ${currentRoom.session.state.turnNumber}` : 'Waiting in lobby'}</h2>{#if currentRoom.session}<p>Current player: {currentPlayer?.name}</p>{#if rolling}<p class="dice-result" aria-live="polite">Rolling dice…</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">Rolled: {lastRoll.rolls.join(' + ')} = {lastRoll.total}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{pendingAction.title || 'Choose an action'}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send(roomCommand('action', { actionId: option.id }))}>{option.title}</button>{/each}{:else}<p>Waiting for the current player to choose.</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>Roll dice</button>{:else}<p>Waiting for the current player to roll.</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{/if}</div>
-    <aside><section class="roster"><h2>Players</h2>{#each currentRoom.members as member (member.id)}<div class="member"><span>{member.displayName}{member.mutedAt ? ' · muted' : ''}</span>{#if canModerate && member.id !== currentRoom.hostMemberId}<div class="member-actions"><button aria-label={`${member.mutedAt ? 'Unmute' : 'Mute'} ${member.displayName}`} onclick={() => muteMember(member.id, !member.mutedAt)}>{member.mutedAt ? 'Unmute' : 'Mute'}</button><button aria-label={`Remove ${member.displayName}`} onclick={() => removeMember(member.id)}>Remove</button></div>{/if}</div>{/each}</section><section class="chat"><h2>Room chat</h2><div class="messages">{#each messages as item (item.id)}<p><strong>{item.displayName}</strong><span>{item.body}</span></p>{/each}</div><form onsubmit={(event) => { event.preventDefault(); submitMessage(); }}><label>Message<input bind:value={message} maxlength="1000" placeholder="Say hello" /></label><button disabled={!message.trim()}>Send</button></form></section></aside>
+    <div class="game"><h2>{currentRoom.session ? t('room.turn', { number: currentRoom.session.state.turnNumber }) : t('room.waitingLobby')}</h2>{#if currentRoom.session}<p>{t('room.currentPlayer', { name: currentPlayer?.name ?? '' })}</p>{#if rolling}<p class="dice-result" aria-live="polite">{t('room.rolling')}</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">{t('room.rolled', { rolls: lastRoll.rolls.join(' + '), total: lastRoll.total })}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{pendingAction.title || t('room.chooseAction')}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send(roomCommand('action', { actionId: option.id }))}>{option.title}</button>{/each}{:else}<p>{t('room.waitingChoice')}</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>{t('room.roll')}</button>{:else}<p>{t('room.waitingRoll')}</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{/if}</div>
+    <aside><section class="roster"><h2>{t('room.players')}</h2>{#each currentRoom.members as member (member.id)}<div class="member"><span>{member.displayName}{member.mutedAt ? ` · ${t('room.muted')}` : ''}</span>{#if canModerate && member.id !== currentRoom.hostMemberId}<div class="member-actions"><button aria-label={member.mutedAt ? t('room.unmuteMember', { name: member.displayName }) : t('room.muteMember', { name: member.displayName })} onclick={() => muteMember(member.id, !member.mutedAt)}>{member.mutedAt ? t('room.unmute') : t('room.mute')}</button><button aria-label={t('room.removeMember', { name: member.displayName })} onclick={() => removeMember(member.id)}>{t('room.remove')}</button></div>{/if}</div>{/each}</section><section class="chat"><h2>{t('room.chat')}</h2><div class="messages">{#each messages as item (item.id)}<p><strong>{item.displayName}</strong><span>{item.body}</span></p>{/each}</div><form onsubmit={(event) => { event.preventDefault(); submitMessage(); }}><label>{t('room.message')}<input bind:value={message} maxlength="1000" placeholder={t('room.messagePlaceholder')} /></label><button disabled={!message.trim()}>{t('room.send')}</button></form></section></aside>
   </div>
 </section>
 

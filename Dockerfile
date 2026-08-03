@@ -17,8 +17,13 @@ RUN addgroup -S rollboard && adduser -S -G rollboard -u 10001 rollboard
 WORKDIR /app
 COPY --from=backend-build /out/rollboard /app/rollboard
 COPY --from=frontend-build /src/frontend/dist /app/frontend
+# Translation catalogs are read from disk at request time, not compiled into
+# the bundle, so mounting a volume over /app/locales adds or corrects a
+# language without rebuilding this image.
+COPY locales/ /app/locales/
 USER rollboard
 EXPOSE 8080
 ENV ROLLBOARD_ADDR=0.0.0.0:8080 \
-    ROLLBOARD_STATIC_DIR=/app/frontend
+    ROLLBOARD_STATIC_DIR=/app/frontend \
+    ROLLBOARD_LOCALES_DIR=/app/locales
 ENTRYPOINT ["/app/rollboard"]

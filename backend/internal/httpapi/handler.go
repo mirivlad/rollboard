@@ -43,6 +43,7 @@ type API struct {
 	auth         AuthOptions
 	authLimiter  *rateLimiter
 	guestLimiter *rateLimiter
+	locales      LocaleOptions
 }
 
 type CatalogService interface {
@@ -130,6 +131,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", a.Healthz)
 	mux.HandleFunc("/readyz", a.Readyz)
 	mux.HandleFunc("/api/health", a.handleHealth)
+	mux.HandleFunc("/api/locales", a.handleLocales)
+	mux.HandleFunc("/api/locales/", a.handleLocaleByTag)
 	mux.HandleFunc("/api/auth/register", a.handleRegister)
 	mux.HandleFunc("/api/auth/guest", a.handleGuestEntry)
 	mux.HandleFunc("/api/auth/login", a.handleLogin)

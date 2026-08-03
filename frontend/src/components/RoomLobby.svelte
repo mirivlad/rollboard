@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GameVersion } from '../lib/types';
+  import { i18n } from '../lib/i18n.svelte';
 
   type Props = {
     versions: GameVersion[];
@@ -12,6 +13,7 @@
   let title = $state('');
   let maxPlayers = $state(4);
   let roomId = $state('');
+  let t = $derived(i18n.t);
 
   $effect(() => { if (!selectedVersion && versions[0]) selectedVersion = versions[0].id; });
   function create() { if (selectedVersion) void onCreate(selectedVersion, title, maxPlayers); }
@@ -19,24 +21,24 @@
 </script>
 
 <section class="lobby">
-  <div><p class="eyebrow">MULTIPLAYER</p><h1>Rooms</h1><p>Rooms are pinned to a published game version. Guests can join with a room ID.</p></div>
+  <div><p class="eyebrow">{t('lobby.eyebrow')}</p><h1>{t('lobby.title')}</h1><p>{t('lobby.intro')}</p></div>
   <div class="cards">
     <form onsubmit={(event) => { event.preventDefault(); create(); }}>
-      <h2>Create a room</h2>
-      <label>Published version
+      <h2>{t('lobby.create')}</h2>
+      <label>{t('lobby.version')}
         <select bind:value={selectedVersion} disabled={busy || versions.length === 0}>
           {#each versions as version}<option value={version.id}>{version.definition.title} · v{version.versionNumber}</option>{/each}
         </select>
       </label>
-      <label>Room title<input bind:value={title} maxlength="120" placeholder="Friday game" /></label>
-      <label>Players<input type="number" bind:value={maxPlayers} min="2" max="8" /></label>
-      <button disabled={busy || !selectedVersion}>Create room</button>
-      {#if versions.length === 0}<p class="hint">Publish a game version first.</p>{/if}
+      <label>{t('lobby.roomTitle')}<input bind:value={title} maxlength="120" placeholder={t('lobby.roomTitlePlaceholder')} /></label>
+      <label>{t('lobby.players')}<input type="number" bind:value={maxPlayers} min="2" max="8" /></label>
+      <button disabled={busy || !selectedVersion}>{t('lobby.createButton')}</button>
+      {#if versions.length === 0}<p class="hint">{t('lobby.publishFirst')}</p>{/if}
     </form>
     <form onsubmit={(event) => { event.preventDefault(); join(); }}>
-      <h2>Join a room</h2>
-      <label>Room ID<input bind:value={roomId} placeholder="Paste room ID" /></label>
-      <button disabled={busy || !roomId.trim()}>Join room</button>
+      <h2>{t('lobby.join')}</h2>
+      <label>{t('lobby.roomId')}<input bind:value={roomId} placeholder={t('lobby.roomIdPlaceholder')} /></label>
+      <button disabled={busy || !roomId.trim()}>{t('lobby.joinButton')}</button>
     </form>
   </div>
 </section>

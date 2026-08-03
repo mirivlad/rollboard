@@ -31,6 +31,9 @@ type Config struct {
 	AppOrigin        string
 	StaticDir        string
 	AuthRateLimit    int
+	// LocalesDir holds one <tag>.json translation catalog per language. Mount a
+	// volume here to add or override translations without rebuilding the image.
+	LocalesDir string
 }
 
 func Load() (Config, error) {
@@ -61,6 +64,7 @@ func Load() (Config, error) {
 		AppOrigin:        env("ROLLBOARD_APP_ORIGIN", defaultAppOrigin),
 		StaticDir:        strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
 		AuthRateLimit:    int(authRateLimit),
+		LocalesDir:       strings.TrimSpace(os.Getenv("ROLLBOARD_LOCALES_DIR")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

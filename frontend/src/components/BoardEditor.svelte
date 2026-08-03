@@ -2,6 +2,7 @@
   import type { GameDefinition, CellDefinition, EdgeDefinition } from '../lib/types';
   import BoardCanvas from './BoardCanvas.svelte';
   import CellInspector from './CellInspector.svelte';
+  import { i18n } from '../lib/i18n.svelte';
 
   let { game, onsave }: {
     game: GameDefinition;
@@ -11,6 +12,7 @@
   let selectedCellId = $state<string | undefined>();
   let selectedEdgeId = $state<string | undefined>();
   let mode = $state<'select' | 'connect'>('select');
+  let t = $derived(i18n.t);
 
   // Board geometry state — initialized from game on load
   let cols = $state(1);
@@ -95,7 +97,7 @@
   }
 
   function updateTitle() {
-    if (title.trim() === '') title = 'Untitled Game';
+    if (title.trim() === '') title = t('game.untitled');
     game.title = title;
   }
 
@@ -118,7 +120,7 @@
     }
     const newCell: CellDefinition = {
       id,
-      title: `Cell ${game.board.cells.length + 1}`,
+      title: t('game.newCell', { number: game.board.cells.length + 1 }),
       type: Object.keys(game.rules.cellTypes)[0] || 'empty',
       x: nx,
       y: ny,
@@ -192,29 +194,29 @@
 <div class="editor">
   <div class="toolbar">
     <label>
-      Title: <input type="text" bind:value={title} onchange={updateTitle} class="title-input" />
+      {t('editor.title')} <input type="text" bind:value={title} onchange={updateTitle} class="title-input" />
     </label>
     <span class="sep"></span>
     <label>
-      Cols: <input type="number" bind:value={cols} onchange={updateCols} min="1" />
+      {t('editor.cols')} <input type="number" bind:value={cols} onchange={updateCols} min="1" />
     </label>
     <label>
-      Rows: <input type="number" bind:value={rows} onchange={updateRows} min="1" />
+      {t('editor.rows')} <input type="number" bind:value={rows} onchange={updateRows} min="1" />
     </label>
     <label>
-      Cell: <input type="number" bind:value={cellSize} onchange={updateCellSize} min="8" />
+      {t('editor.cell')} <input type="number" bind:value={cellSize} onchange={updateCellSize} min="8" />
     </label>
     <span class="dim-hint">{boardWidth} x {boardHeight}</span>
     <span class="sep"></span>
-    <label title="Dice count">
-      Dice: <input type="number" bind:value={diceCount} onchange={updateDice} min="1" max="10" class="dice-num" />d
+    <label title={t('editor.diceCountTitle')}>
+      {t('editor.dice')} <input type="number" bind:value={diceCount} onchange={updateDice} min="1" max="10" class="dice-num" />d
     </label>
     <input type="number" bind:value={diceSides} onchange={updateDice} min="2" max="100" class="dice-sides" />
     <span class="sep"></span>
-    <label title="Start bonus resource">
-      Bonus:
+    <label title={t('editor.startBonusTitle')}>
+      {t('editor.bonus')}
       <select bind:value={startBonusResource} onchange={updateStartBonusResource} class="bonus-resource">
-        <option value="">none</option>
+        <option value="">{t('editor.bonusNone')}</option>
         {#each Object.keys(game.rules.resources) as res}
           <option value={res}>{res}</option>
         {/each}
@@ -222,12 +224,12 @@
     </label>
     <input type="number" bind:value={startBonus} onchange={updateStartBonus} min="0" class="bonus-amount" />
     <span class="sep"></span>
-    <button onclick={addCell}>+ Add Cell</button>
+    <button onclick={addCell}>{t('editor.addCell')}</button>
     <button
       class={mode === 'connect' ? 'active' : ''}
       onclick={() => { mode = mode === 'connect' ? 'select' : 'connect'; selectedCellId = undefined; }}
     >
-      {mode === 'connect' ? 'Exit Connect' : 'Connect Cells'}
+      {mode === 'connect' ? t('editor.exitConnect') : t('editor.connect')}
     </button>
   </div>
 

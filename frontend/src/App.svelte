@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { CatalogGame, GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room } from './lib/types';
   import { api } from './lib/api';
+  import { errorMessage, i18n } from './lib/i18n.svelte';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
   import AuthPanel from './components/AuthPanel.svelte';
+  import LanguagePicker from './components/LanguagePicker.svelte';
   import BoardEditor from './components/BoardEditor.svelte';
   import GameDashboard, { type Template } from './components/GameDashboard.svelte';
   import GameSetup from './components/GameSetup.svelte';
@@ -23,7 +25,9 @@
     ? { kind: 'user' as const, id: principal.user.id }
     : { kind: 'guest' as const, id: principal?.guest.id ?? '' });
 
-  function showError(error: unknown) { message = error instanceof Error ? error.message : 'Something went wrong'; }
+  let t = $derived(i18n.t);
+
+  function showError(error: unknown) { message = errorMessage(t, error); }
   function displayName() { return principal?.kind === 'user' ? principal.user.displayName : principal?.guest.displayName ?? ''; }
 
   async function refreshCatalog() {
@@ -38,6 +42,9 @@
   }
 
   async function restoreSession() {
+    // Language first, so a failure below is reported in the player's language
+    // rather than in English.
+    await i18n.init();
     try {
       await api.health();
       if (!document.cookie.includes('rollboard_csrf=')) {
@@ -65,7 +72,7 @@
     try { const user: PublicUser = await api.login(email, password); principal = { kind: 'user', user }; await refreshCatalog(); view = 'dashboard'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function create(template: Template, advanced: boolean) {
-    if (principal?.kind !== 'user') { message = 'Create an account to save and publish games.'; return; }
+    if (principal?.kind !== 'user') { message = t('dashboard.accountRequired'); return; }
     busy = true; message = '';
     const definition = template === 'mini-monopoly' ? createMiniMonopolyDemo() : template === 'dungeon-race' ? createDungeonRaceDemo() : createDefaultGame();
     try { const game = await api.createDraft(definition); currentGame = await api.getDraft(game.id); view = advanced ? 'editor' : 'setup'; } catch (error) { showError(error); } finally { busy = false; }
@@ -77,15 +84,15 @@
   async function saveGame() {
     if (!currentGame) return;
     busy = true; message = '';
-    try { currentGame = await api.saveDraft(currentGame.id, currentGame); await refreshCatalog(); message = 'Draft saved'; } catch (error) { showError(error); } finally { busy = false; }
+    try { currentGame = await api.saveDraft(currentGame.id, currentGame); await refreshCatalog(); message = t('dashboard.draftSaved'); } catch (error) { showError(error); } finally { busy = false; }
   }
   async function publishGame() {
     if (!currentGame) return;
     busy = true; message = '';
-    try { const version = await api.publishDraft(currentGame.id); publishedVersions = [version, ...publishedVersions.filter((item) => item.id !== version.id)]; await refreshCatalog(); message = `Published version ${version.versionNumber}. You can now create a multiplayer room.`; } catch (error) { showError(error); } finally { busy = false; }
+    try { const version = await api.publishDraft(currentGame.id); publishedVersions = [version, ...publishedVersions.filter((item) => item.id !== version.id)]; await refreshCatalog(); message = t('dashboard.published', { version: version.versionNumber }); } catch (error) { showError(error); } finally { busy = false; }
   }
   async function openGame(gameID: string) { busy = true; message = ''; try { currentGame = await api.getDraft(gameID); view = 'editor'; } catch (error) { showError(error); } finally { busy = false; } }
-  async function createRoom(versionId: string, title: string, maxPlayers: number) { busy = true; message = ''; try { currentRoom = await api.createRoom(versionId, title || 'New room', maxPlayers); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
+  async function createRoom(versionId: string, title: string, maxPlayers: number) { busy = true; message = ''; try { currentRoom = await api.createRoom(versionId, title || t('lobby.newRoom'), maxPlayers); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
   async function joinRoom(roomId: string) { busy = true; message = ''; try { await api.joinRoom(roomId); currentRoom = await api.getRoom(roomId); view = 'room'; } catch (error) { showError(error); } finally { busy = false; } }
   async function logout() { await api.logout(); principal = null; currentGame = null; currentSession = null; view = 'auth'; }
 
@@ -94,11 +101,13 @@
 
 <div class="app">
   {#if view !== 'auth' && view !== 'loading'}
-    <header><strong>Rollboard</strong><span>{displayName()}</span><button onclick={() => (view = 'rooms')}>Rooms</button><button onclick={logout}>Sign out</button></header>
+    <header><strong>Rollboard</strong><span>{displayName()}</span><LanguagePicker /><button onclick={() => (view = 'rooms')}>{t('app.rooms')}</button><button onclick={logout}>{t('app.signOut')}</button></header>
   {/if}
   <main>
-    {#if message}<p class="message" role="alert">{message}</p>{/if}
-    {#if view === 'loading'}<p class="loading">Connecting to Rollboard…</p>
+    <!-- The auth panel renders the message inline next to the form, so the
+         banner would be a duplicate there. -->
+    {#if message && view !== 'auth'}<p class="message" role="alert">{message}</p>{/if}
+    {#if view === 'loading'}<p class="loading">{t('app.connecting')}</p>
     {:else if view === 'auth'}<AuthPanel onGuest={enterGuest} onRegister={register} onLogin={login} {busy} error={message} />
     {:else if view === 'dashboard'}
       {#if principal?.kind === 'user'}<GameDashboard displayName={displayName()} onCreate={create} games={ownedGames} onOpen={openGame} {busy} />
@@ -106,14 +115,14 @@
     {:else if view === 'setup' && currentGame}
       <GameSetup game={currentGame} onContinue={finishSetup} onAdvanced={finishSetup} />
     {:else if view === 'editor' && currentGame}
-      <nav class="editor-actions"><button onclick={() => (view = 'dashboard')}>← Dashboard</button><button onclick={saveGame} disabled={busy}>Save draft</button><button onclick={publishGame} disabled={busy}>Publish</button><button onclick={() => (view = 'playtest')}>Playtest</button></nav>
+      <nav class="editor-actions"><button onclick={() => (view = 'dashboard')}>{t('editor.back')}</button><button onclick={saveGame} disabled={busy}>{t('editor.save')}</button><button onclick={publishGame} disabled={busy}>{t('editor.publish')}</button><button onclick={() => (view = 'playtest')}>{t('editor.playtest')}</button></nav>
       <BoardEditor game={currentGame} onsave={saveGame} />
     {:else if view === 'playtest' && currentGame}
       <PlaytestPanel {currentGame} session={currentSession} onSessionCreated={(session) => (currentSession = session)} onBack={() => (view = 'editor')} />
     {:else if view === 'rooms'}
       <RoomLobby versions={publishedVersions} onCreate={createRoom} onJoin={joinRoom} {busy} />
     {:else if view === 'room' && currentRoom}
-      <nav class="editor-actions"><button onclick={() => (view = 'rooms')}>← Rooms</button><code>{currentRoom.id}</code></nav>
+      <nav class="editor-actions"><button onclick={() => (view = 'rooms')}>{t('room.back')}</button><code>{currentRoom.id}</code></nav>
       <RoomPlay room={currentRoom} canStart={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} canModerate={principal?.kind === 'user' && principal.user.id === currentRoom.hostUserId} actor={roomActor} onRoom={(room) => (currentRoom = room)} />
     {/if}
   </main>

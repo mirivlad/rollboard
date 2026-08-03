@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { i18n } from '../lib/i18n.svelte';
   import type { Board, CellDefinition, PlayerState, CellState } from '../lib/types';
   import CellView from './CellView.svelte';
   import EdgeLayer from './EdgeLayer.svelte';
@@ -16,6 +17,7 @@
     onCanvasClick?: (x: number, y: number) => void;
     onAddEdge?: (from: string, to: string) => void;
   } = $props();
+  let t = $derived(i18n.t);
 
   let surfaceEl = $state<HTMLElement | null>(null);
   let connectFrom = $state<string | null>(null);
@@ -206,7 +208,7 @@
       {#if debugVisible}
         <div class="debug-panel" role="none" onpointerdown={(e) => e.stopPropagation()}>
           <button class="debug-close" onclick={() => debugVisible = false}>✕</button>
-          <div class="debug-title">Editor Debug</div>
+          <div class="debug-title">{t('editor.debugTitle')}</div>
           <div class="debug-row">board cols/rows: <span class="debug-val">{cols} x {rows}</span></div>
           <div class="debug-row">board surface: <span class="debug-val">{boardSurfaceWidth()} x {boardSurfaceHeight()}</span></div>
           <div class="debug-row">selectedCellId: <span class="debug-val">{selectedCellId ?? 'null'}</span></div>
@@ -218,7 +220,7 @@
           <div class="debug-row">mouseBoard: <span class="debug-val">{mouseBoardX}, {mouseBoardY}</span></div>
         </div>
       {:else}
-        <button class="debug-show" onclick={() => debugVisible = true}>Debug</button>
+        <button class="debug-show" onclick={() => debugVisible = true}>{t('editor.debug')}</button>
       {/if}
     </div>
   </div>

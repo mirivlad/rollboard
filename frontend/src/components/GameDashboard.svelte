@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CatalogGame } from '../lib/types';
+  import { i18n } from '../lib/i18n.svelte';
 
   export type Template = 'blank' | 'mini-monopoly' | 'dungeon-race';
 
@@ -13,42 +14,43 @@
 
   let { displayName, onCreate, games, onOpen, busy = false }: Props = $props();
   let advanced = $state(false);
+  let t = $derived(i18n.t);
 </script>
 
 <section class="dashboard">
   <header>
     <div>
-      <p class="eyebrow">AUTHOR WORKSPACE</p>
-      <h1>Your games</h1>
-      <p>Welcome, {displayName}. Drafts are private until you publish a version.</p>
+      <p class="eyebrow">{t('dashboard.eyebrow')}</p>
+      <h1>{t('dashboard.title')}</h1>
+      <p>{t('dashboard.welcome', { name: displayName })}</p>
     </div>
-    <label class="advanced"><input type="checkbox" bind:checked={advanced} /> Advanced studio</label>
+    <label class="advanced"><input type="checkbox" bind:checked={advanced} /> {t('dashboard.advanced')}</label>
   </header>
 
-  <section class="create" aria-label="Create a game">
-    <h2>Start a game</h2>
+  <section class="create" aria-label={t('dashboard.createLabel')}>
+    <h2>{t('dashboard.start')}</h2>
     <div class="templates">
       <button onclick={() => onCreate('blank', advanced)} disabled={busy}>
-        <strong>Blank board</strong><span>Build rules and board from scratch</span>
+        <strong>{t('dashboard.template.blank')}</strong><span>{t('dashboard.template.blankHint')}</span>
       </button>
       <button onclick={() => onCreate('mini-monopoly', advanced)} disabled={busy}>
-        <strong>Mini-Monopoly</strong><span>Property, rent and choices</span>
+        <strong>{t('dashboard.template.miniMonopoly')}</strong><span>{t('dashboard.template.miniMonopolyHint')}</span>
       </button>
       <button onclick={() => onCreate('dungeon-race', advanced)} disabled={busy}>
-        <strong>Dungeon Race</strong><span>Fast race with resources</span>
+        <strong>{t('dashboard.template.dungeonRace')}</strong><span>{t('dashboard.template.dungeonRaceHint')}</span>
       </button>
     </div>
   </section>
 
-  <section class="empty" aria-label="Draft list">
-    <h2>Private drafts</h2>
+  <section class="empty" aria-label={t('dashboard.draftListLabel')}>
+    <h2>{t('dashboard.drafts')}</h2>
     {#if games.length === 0}
-      <p>No drafts yet. Pick a template to create your first game.</p>
+      <p>{t('dashboard.noDrafts')}</p>
     {:else}
       <div class="drafts">
         {#each games as game (game.id)}
-          <button class="draft" onclick={() => onOpen(game.id)} disabled={busy} aria-label={`Open ${game.title}`}>
-            <strong>{game.title}</strong><span>Updated {new Date(game.updatedAt).toLocaleDateString()}</span>
+          <button class="draft" onclick={() => onOpen(game.id)} disabled={busy} aria-label={t('dashboard.openGame', { title: game.title })}>
+            <strong>{game.title}</strong><span>{t('dashboard.updated', { date: new Date(game.updatedAt).toLocaleDateString(i18n.locale) })}</span>
           </button>
         {/each}
       </div>

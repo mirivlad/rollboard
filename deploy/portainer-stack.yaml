@@ -29,6 +29,17 @@ services:
       ROLLBOARD_REDIS_URL: redis://redis:6379/0
       ROLLBOARD_APP_ORIGIN: ${ROLLBOARD_APP_ORIGIN:?Set_ROLLBOARD_APP_ORIGIN}
       ROLLBOARD_COOKIE_SECURE: "true"
+      ROLLBOARD_LOCALES_DIR: /app/locales
+    # The image already ships English and Russian at /app/locales. To add a
+    # language or reword the interface, bind-mount a directory that contains a
+    # COMPLETE set of catalogs — a mount replaces the built-in ones rather than
+    # merging with them, so copy the shipped files in first:
+    #
+    #   docker run --rm --entrypoint sh ghcr.io/mirivlad/rollboard:latest \
+    #     -c 'tar -c -C /app/locales .' | tar -x -C /srv/rollboard/locales
+    #
+    # volumes:
+    #   - /srv/rollboard/locales:/app/locales:ro
     ports:
       - target: 8080
         published: ${ROLLBOARD_PORT:-8080}

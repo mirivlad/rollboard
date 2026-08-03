@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CellDefinition, EdgeDefinition, RuleSet, ActionDefinition, ActionOption } from '../lib/types';
+  import { i18n } from '../lib/i18n.svelte';
 
   let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect, onEdgeChange }: {
     cell: CellDefinition | null | undefined;
@@ -13,25 +14,22 @@
     onEdgeChange?: (edge: EdgeDefinition) => void;
   } = $props();
 
+  let t = $derived(i18n.t);
   let typeDef = $derived(cell ? rules.cellTypes[cell.type] : null);
   let cellEdges = $derived(edges.filter(e => e.from === cell?.id || e.to === cell?.id));
 
   // --- Action type definitions ---
   const ACTION_TYPES = [
-    { value: 'gain_resource', label: 'Gain Resource' },
-    { value: 'lose_resource', label: 'Lose Resource' },
-    { value: 'transfer_resource', label: 'Transfer Resource' },
-    { value: 'set_cell_owner', label: 'Set Cell Owner' },
-    { value: 'if_resource_ge', label: 'If Resource ≥' },
-    { value: 'finish_game', label: 'Finish Game' },
-    { value: 'log_message', label: 'Log Message' },
+    'gain_resource',
+    'lose_resource',
+    'transfer_resource',
+    'set_cell_owner',
+    'if_resource_ge',
+    'finish_game',
+    'log_message',
   ];
 
-  const TARGET_OPTIONS = [
-    { value: 'current', label: 'Current Player' },
-    { value: 'owner', label: 'Cell Owner' },
-    { value: 'bank', label: 'Bank' },
-  ];
+  const TARGET_OPTIONS = ['current', 'owner', 'bank'];
 
   function resourceList(): string[] {
     return Object.keys(rules.resources);
@@ -129,14 +127,14 @@
   }
 
   // --- Edge condition helpers ---
-  let conditionTypes: { value: string; label: string }[] = [
-    { value: 'always', label: 'Always' },
-    { value: 'dice_total_even', label: 'Dice Total Even' },
-    { value: 'dice_total_odd', label: 'Dice Total Odd' },
-    { value: 'dice_total_in', label: 'Dice Total In' },
-    { value: 'player_resource_at_least', label: 'Resource ≥ Amount' },
-    { value: 'manual_choice', label: 'Manual Choice' },
-    { value: 'pay_resource', label: 'Pay Resource' },
+  const conditionTypes = [
+    'always',
+    'dice_total_even',
+    'dice_total_odd',
+    'dice_total_in',
+    'player_resource_at_least',
+    'manual_choice',
+    'pay_resource',
   ];
 
   let selectedEdge = $derived(edges.find(e => e.id === selectedEdgeId) ?? null);
@@ -165,17 +163,17 @@
 
 <div class="inspector">
   {#if cell}
-    <h3>Cell: {cell.id}</h3>
+    <h3>{t('inspector.cell', { id: cell.id })}</h3>
     <label>
-      ID
+      {t('inspector.id')}
       <input value={cell.id} oninput={(e) => onCellChange?.({ ...cell, id: (e.target as HTMLInputElement).value })} />
     </label>
     <label>
-      Title
+      {t('inspector.title')}
       <input value={cell.title} oninput={(e) => onCellChange?.({ ...cell, title: (e.target as HTMLInputElement).value })} />
     </label>
     <label>
-      Type
+      {t('inspector.type')}
       <select
         value={cell.type}
         onchange={(e) => onCellChange?.({ ...cell, type: (e.target as HTMLSelectElement).value, fields: {} })}
@@ -186,27 +184,27 @@
       </select>
     </label>
     <label>
-      Position X
+      {t('inspector.posX')}
       <input type="number" value={cell.x} oninput={(e) => onCellChange?.({ ...cell, x: parseInt((e.target as HTMLInputElement).value) || 0 })} />
     </label>
     <label>
-      Position Y
+      {t('inspector.posY')}
       <input type="number" value={cell.y} oninput={(e) => onCellChange?.({ ...cell, y: parseInt((e.target as HTMLInputElement).value) || 0 })} />
     </label>
     <hr />
-    <h4>Visual</h4>
+    <h4>{t('inspector.visual')}</h4>
     <label>
-      Color
+      {t('inspector.color')}
       <input type="color" value={cell.visual.baseColor} oninput={(e) => updateVisual('baseColor', (e.target as HTMLInputElement).value)} />
     </label>
     <label>
-      Image URL
-      <input value={cell.visual.baseImage} oninput={(e) => updateVisual('baseImage', (e.target as HTMLInputElement).value)} placeholder="optional URL" />
+      {t('inspector.imageUrl')}
+      <input value={cell.visual.baseImage} oninput={(e) => updateVisual('baseImage', (e.target as HTMLInputElement).value)} placeholder={t('inspector.imageUrlPlaceholder')} />
     </label>
 
     {#if typeDef && Object.keys(typeDef.fields).length > 0}
       <hr />
-      <h4>Fields</h4>
+      <h4>{t('inspector.fields')}</h4>
       {#each Object.entries(typeDef.fields) as [key, fieldDef]}
         <label>
           {fieldDef.label}
@@ -244,16 +242,16 @@
     <!-- Actions Editor -->
     {#if cell}
       <hr />
-      <h4>Actions</h4>
+      <h4>{t('inspector.actions')}</h4>
 
       <!-- On Land -->
       <div class="action-list-section">
         <div class="action-list-header">
-          <span class="action-list-title">On Land</span>
+          <span class="action-list-title">{t('inspector.onLand')}</span>
           <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onLand', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
-            <option value="">+ Add</option>
+            <option value="">{t('inspector.add')}</option>
             {#each ACTION_TYPES as at}
-              <option value={at.value}>{at.label}</option>
+              <option value={at}>{t(`action.${at}`)}</option>
             {/each}
           </select>
         </div>
@@ -262,89 +260,89 @@
             <div class="action-header">
               <select class="action-type" value={action.type} onchange={(e) => setActionField('onLand', i, 'type', (e.target as HTMLSelectElement).value)}>
                 {#each ACTION_TYPES as at}
-                  <option value={at.value}>{at.label}</option>
+                  <option value={at}>{t(`action.${at}`)}</option>
                 {/each}
               </select>
               <div class="action-controls">
-                <button class="small" onclick={() => moveAction('onLand', i, -1)} disabled={i === 0}>↑</button>
-                <button class="small" onclick={() => moveAction('onLand', i, 1)} disabled={i === getActions('onLand').length - 1}>↓</button>
-                <button class="small danger" onclick={() => removeAction('onLand', i)}>✕</button>
+                <button class="small" aria-label={t('inspector.moveUp')} onclick={() => moveAction('onLand', i, -1)} disabled={i === 0}>↑</button>
+                <button class="small" aria-label={t('inspector.moveDown')} onclick={() => moveAction('onLand', i, 1)} disabled={i === getActions('onLand').length - 1}>↓</button>
+                <button class="small danger" aria-label={t('inspector.removeAction')} onclick={() => removeAction('onLand', i)}>✕</button>
               </div>
             </div>
             <!-- Action fields -->
             <div class="action-fields">
               {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
               {:else if action.type === 'transfer_resource'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
-                <label>Target
+                <label>{t('inspector.target')}
                   <select value={action.target || 'owner'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
                     {#each TARGET_OPTIONS as to}
-                      <option value={to.value}>{to.label}</option>
+                      <option value={to}>{t(`target.${to}`)}</option>
                     {/each}
                   </select>
                 </label>
               {:else if action.type === 'set_cell_owner'}
-                <label>Owner
+                <label>{t('inspector.owner')}
                   <select value={action.target || 'current'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
                     {#each TARGET_OPTIONS as to}
-                      <option value={to.value}>{to.label}</option>
+                      <option value={to}>{t(`target.${to}`)}</option>
                     {/each}
                   </select>
                 </label>
               {:else if action.type === 'if_resource_ge'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
-                <p class="hint">Nested then/else not yet editable in UI</p>
+                <p class="hint">{t('inspector.nestedHint')}</p>
               {:else if action.type === 'finish_game'}
-                <p class="hint">Ends the game. Current player wins.</p>
+                <p class="hint">{t('inspector.finishHint')}</p>
               {:else if action.type === 'log_message'}
-                <label>Message
-                  <input value={action.title || ''} oninput={(e) => setActionField('onLand', i, 'title', (e.target as HTMLInputElement).value)} placeholder="Log message" />
+                <label>{t('inspector.message')}
+                  <input value={action.title || ''} oninput={(e) => setActionField('onLand', i, 'title', (e.target as HTMLInputElement).value)} placeholder={t('inspector.logPlaceholder')} />
                 </label>
               {/if}
             </div>
           </div>
         {/each}
         {#if getActions('onLand').length === 0}
-          <p class="hint">No on-land actions</p>
+          <p class="hint">{t('inspector.noOnLand')}</p>
         {/if}
       </div>
 
       <!-- On Pass -->
       <div class="action-list-section">
         <div class="action-list-header">
-          <span class="action-list-title">On Pass</span>
+          <span class="action-list-title">{t('inspector.onPass')}</span>
           <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onPass', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
-            <option value="">+ Add</option>
+            <option value="">{t('inspector.add')}</option>
             {#each ACTION_TYPES as at}
-              <option value={at.value}>{at.label}</option>
+              <option value={at}>{t(`action.${at}`)}</option>
             {/each}
           </select>
         </div>
@@ -353,112 +351,112 @@
             <div class="action-header">
               <select class="action-type" value={action.type} onchange={(e) => setActionField('onPass', i, 'type', (e.target as HTMLSelectElement).value)}>
                 {#each ACTION_TYPES as at}
-                  <option value={at.value}>{at.label}</option>
+                  <option value={at}>{t(`action.${at}`)}</option>
                 {/each}
               </select>
               <div class="action-controls">
-                <button class="small" onclick={() => moveAction('onPass', i, -1)} disabled={i === 0}>↑</button>
-                <button class="small" onclick={() => moveAction('onPass', i, 1)} disabled={i === getActions('onPass').length - 1}>↓</button>
-                <button class="small danger" onclick={() => removeAction('onPass', i)}>✕</button>
+                <button class="small" aria-label={t('inspector.moveUp')} onclick={() => moveAction('onPass', i, -1)} disabled={i === 0}>↑</button>
+                <button class="small" aria-label={t('inspector.moveDown')} onclick={() => moveAction('onPass', i, 1)} disabled={i === getActions('onPass').length - 1}>↓</button>
+                <button class="small danger" aria-label={t('inspector.removeAction')} onclick={() => removeAction('onPass', i)}>✕</button>
               </div>
             </div>
             <div class="action-fields">
               {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
               {:else if action.type === 'transfer_resource'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
-                <label>Target
+                <label>{t('inspector.target')}
                   <select value={action.target || 'owner'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
                     {#each TARGET_OPTIONS as to}
-                      <option value={to.value}>{to.label}</option>
+                      <option value={to}>{t(`target.${to}`)}</option>
                     {/each}
                   </select>
                 </label>
               {:else if action.type === 'set_cell_owner'}
-                <label>Owner
+                <label>{t('inspector.owner')}
                   <select value={action.target || 'current'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
                     {#each TARGET_OPTIONS as to}
-                      <option value={to.value}>{to.label}</option>
+                      <option value={to}>{t(`target.${to}`)}</option>
                     {/each}
                   </select>
                 </label>
               {:else if action.type === 'if_resource_ge'}
-                <label>Resource
+                <label>{t('inspector.resource')}
                   <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
                     {#each resourceList() as res}
                       <option value={res}>{res}</option>
                     {/each}
                   </select>
                 </label>
-                <label>Amount
+                <label>{t('inspector.amount')}
                   <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
                 </label>
-                <p class="hint">Nested then/else not yet editable in UI</p>
+                <p class="hint">{t('inspector.nestedHint')}</p>
               {:else if action.type === 'finish_game'}
-                <p class="hint">Ends the game. Current player wins.</p>
+                <p class="hint">{t('inspector.finishHint')}</p>
               {:else if action.type === 'log_message'}
-                <label>Message
-                  <input value={action.title || ''} oninput={(e) => setActionField('onPass', i, 'title', (e.target as HTMLInputElement).value)} placeholder="Log message" />
+                <label>{t('inspector.message')}
+                  <input value={action.title || ''} oninput={(e) => setActionField('onPass', i, 'title', (e.target as HTMLInputElement).value)} placeholder={t('inspector.logPlaceholder')} />
                 </label>
               {/if}
             </div>
           </div>
         {/each}
         {#if getActions('onPass').length === 0}
-          <p class="hint">No on-pass actions</p>
+          <p class="hint">{t('inspector.noOnPass')}</p>
         {/if}
       </div>
     {/if}
 
     <hr />
-    <h4>Edges ({cellEdges.length})</h4>
+    <h4>{t('inspector.edges', { count: cellEdges.length })}</h4>
     {#each cellEdges as edge}
       <div class="edge-row" class:selected={edge.id === selectedEdgeId} onclick={() => onEdgeSelect?.(edge.id)} onkeydown={(e) => e.key === 'Enter' && onEdgeSelect?.(edge.id)} role="button" tabindex="0">
         <span>{edge.from} → {edge.to}</span>
-        <button class="small" onclick={() => onDeleteEdge?.(edge.id)}>✕</button>
+        <button class="small" aria-label={t('inspector.removeEdge')} onclick={() => onDeleteEdge?.(edge.id)}>✕</button>
       </div>
     {/each}
 
     <hr />
-    <button class="delete" onclick={() => onDeleteCell?.(cell.id)}>Delete Cell</button>
+    <button class="delete" onclick={() => onDeleteCell?.(cell.id)}>{t('inspector.deleteCell')}</button>
   {:else}
-    <p class="hint">Select a cell to edit</p>
+    <p class="hint">{t('inspector.selectCell')}</p>
   {/if}
 
   {#if selectedEdgeId && !cell && selectedEdge}
     <hr />
-    <h4>Edge: {selectedEdge.id}</h4>
+    <h4>{t('inspector.edge', { id: selectedEdge.id })}</h4>
     <p class="edge-route">{selectedEdge.from} → {selectedEdge.to}</p>
     <label>
-      Condition Type
+      {t('inspector.conditionType')}
       <select value={selectedEdge.condition.type} onchange={(e) => updateConditionType((e.target as HTMLSelectElement).value)}>
         {#each conditionTypes as ct}
-          <option value={ct.value}>{ct.label}</option>
+          <option value={ct}>{t(`condition.${ct}`)}</option>
         {/each}
       </select>
     </label>
 
     {#if selectedEdge.condition.type === 'dice_total_in'}
       <label>
-        Values (comma separated)
+        {t('inspector.values')}
         <input
           value={(selectedEdge.condition.values ?? []).join(',')}
           oninput={(e) => updateConditionField('values', (e.target as HTMLInputElement).value.split(',').map(v => parseInt(v.trim()) || 0).filter(v => v > 0))}
@@ -469,26 +467,26 @@
 
     {#if selectedEdge.condition.type === 'manual_choice' || selectedEdge.condition.type === 'pay_resource'}
       <label>
-        Label
+        {t('inspector.label')}
         <input
           value={selectedEdge.condition.label ?? ''}
           oninput={(e) => updateConditionField('label', (e.target as HTMLInputElement).value)}
-          placeholder="Choose this path"
+          placeholder={t('inspector.labelPlaceholder')}
         />
       </label>
     {/if}
 
     {#if selectedEdge.condition.type === 'player_resource_at_least' || selectedEdge.condition.type === 'pay_resource'}
       <label>
-        Resource
+        {t('inspector.resource')}
         <input
           value={selectedEdge.condition.resource ?? ''}
           oninput={(e) => updateConditionField('resource', (e.target as HTMLInputElement).value)}
-          placeholder="gold, keys, health..."
+          placeholder={t('inspector.resourcePlaceholder')}
         />
       </label>
       <label>
-        Amount
+        {t('inspector.amount')}
         <input
           type="number"
           value={selectedEdge.condition.amount ?? 1}
@@ -499,11 +497,11 @@
     {/if}
 
     {#if selectedEdge.condition.type === 'dice_total_even' || selectedEdge.condition.type === 'dice_total_odd'}
-      <p class="hint">No additional fields needed for this condition.</p>
+      <p class="hint">{t('inspector.noConditionFields')}</p>
     {/if}
 
     <hr />
-    <button class="delete" onclick={() => onDeleteEdge?.(selectedEdgeId!)}>Delete Edge</button>
+    <button class="delete" onclick={() => onDeleteEdge?.(selectedEdgeId!)}>{t('inspector.deleteEdge')}</button>
   {/if}
 </div>
 

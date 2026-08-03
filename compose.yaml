@@ -35,6 +35,11 @@ services:
       ROLLBOARD_REDIS_URL: redis://redis:6379/0
       ROLLBOARD_APP_ORIGIN: http://localhost:8080
       ROLLBOARD_COOKIE_SECURE: "false"
+      ROLLBOARD_LOCALES_DIR: /app/locales
+    volumes:
+      # Bind-mounting the catalogs means editing a JSON file and restarting the
+      # container is enough to change or add a translation.
+      - ./locales:/app/locales:ro
     ports:
       - "8080:8080"
     depends_on:

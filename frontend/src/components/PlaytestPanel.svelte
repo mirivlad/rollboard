@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { GameDefinition, GameSession, PlayerState } from '../lib/types';
   import { api } from '../lib/api';
+  import { errorMessage, i18n } from '../lib/i18n.svelte';
   import BoardView from './BoardView.svelte';
 
   let { currentGame, session, onSessionCreated, onBack }: {
@@ -13,9 +14,10 @@
   // --- Setup form state ---
   let error = $state('');
   let loading = $state(false);
+  let t = $derived(i18n.t);
   let playerConfigs = $state<{ name: string; color: string }[]>([
-    { name: 'Player 1', color: '#e74c3c' },
-    { name: 'Player 2', color: '#3498db' },
+    { name: '', color: '#e74c3c' },
+    { name: '', color: '#3498db' },
   ]);
 
   let playerColors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
@@ -23,7 +25,7 @@
   function updatePlayerCount(count: number) {
     while (playerConfigs.length < count) {
       const i = playerConfigs.length;
-      playerConfigs = [...playerConfigs, { name: `Player ${i + 1}`, color: playerColors[i % playerColors.length] }];
+      playerConfigs = [...playerConfigs, { name: '', color: playerColors[i % playerColors.length] }];
     }
     if (playerConfigs.length > count) {
       playerConfigs = playerConfigs.slice(0, count);
@@ -161,8 +163,8 @@
             checkPhaseAfterRoll(s);
           }
         }, 600);
-      } catch (e: any) {
-        error = e.message;
+      } catch (e: unknown) {
+        error = errorMessage(t, e);
         diceState = 'idle';
         const refreshed = await api.getSession(sess.id);
         currentSession = refreshed;
@@ -206,8 +208,8 @@
       const s = await api.performAction(currentSession.id, actionId);
       currentSession = s;
       phase = 'turn_done';
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = errorMessage(t, e);
     } finally {
       loading = false;
     }
@@ -221,8 +223,8 @@
       const s = await api.nextTurn(currentSession.id);
       currentSession = s;
       showTurnIntro();
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = errorMessage(t, e);
     } finally {
       loading = false;
     }
@@ -246,13 +248,19 @@
     loading = true;
     error = '';
     try {
-      const s = await api.startPlaytest(currentGame.id, playerConfigs, 'hotseat');
+      // Names are left blank in the form so the placeholder shows the
+      // localised default; fill them in only when the session is created.
+      const named = playerConfigs.map((cfg, i) => ({
+        ...cfg,
+        name: cfg.name.trim() || t('playtest.playerName', { number: i + 1 }),
+      }));
+      const s = await api.startPlaytest(currentGame.id, named, 'hotseat');
       currentSession = s;
       lastLogLength = s.state.log.length;
       onSessionCreated(s);
       phase = 'turn_intro';
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = errorMessage(t, e);
     } finally {
       loading = false;
     }
@@ -270,15 +278,15 @@
 <div class="playtest">
   {#if !currentSession}
     <div class="setup">
-      <h2>Hotseat Playtest</h2>
-      <p>Game: <strong>{currentGame.title}</strong></p>
+      <h2>{t('playtest.title')}</h2>
+      <p>{t('playtest.game', { title: currentGame.title })}</p>
 
       <div class="setup-players">
         <label>
-          Players:
+          {t('playtest.playersLabel')}
           <select bind:value={playerConfigs.length} onchange={(e) => updatePlayerCount(Number((e.target as HTMLSelectElement).value))}>
             {#each [2, 3, 4, 5, 6] as n}
-              <option value={n}>{n} Players</option>
+              <option value={n}>{t('playtest.playerCount', { count: n })}</option>
             {/each}
           </select>
         </label>
@@ -288,7 +296,7 @@
             <span class="dot" style="background: {cfg.color}"></span>
             <input
               bind:value={cfg.name}
-              placeholder="Player {i + 1}"
+              placeholder={t('playtest.playerName', { number: i + 1 })}
             />
             <input
               type="color"
@@ -299,15 +307,15 @@
       </div>
 
       <button onclick={startSession} disabled={loading}>
-        {loading ? 'Starting...' : 'Start Playtest'}
+        {loading ? t('playtest.starting') : t('playtest.start')}
       </button>
     </div>
 
   {:else if currentSession.state.status === 'finished'}
     <div class="game-over">
-      <h2>Game Over!</h2>
+      <h2>{t('playtest.gameOver')}</h2>
       <div class="winner-banner">
-        {currentSession!.state.players.find(p => p.id === currentSession!.state.winnerPlayerId)?.name} wins!
+        {t('playtest.wins', { name: currentSession!.state.players.find(p => p.id === currentSession!.state.winnerPlayerId)?.name ?? '' })}
       </div>
       <div class="player-stats">
         {#each currentSession.state.players as player}
@@ -322,7 +330,7 @@
           </div>
         {/each}
       </div>
-      <button onclick={onBack}>Back to Editor</button>
+      <button onclick={onBack}>{t('playtest.backToEditor')}</button>
     </div>
 
   {:else}
@@ -330,16 +338,16 @@
       <div class="turn-intro">
         <div class="current-player-card" style="border-color: {currentPlayer?.color}">
           <div class="big-dot" style="background: {currentPlayer?.color}"></div>
-          <h2>{currentPlayer?.name}'s Turn</h2>
-          <p>Round {currentSession.state.roundNumber} · Turn {currentSession.state.turnNumber}</p>
-          <p class="pass-msg">Pass control to {currentPlayer?.name}</p>
+          <h2>{t('playtest.turnOf', { name: currentPlayer?.name ?? '' })}</h2>
+          <p>{t('playtest.roundTurn', { round: currentSession.state.roundNumber, turn: currentSession.state.turnNumber })}</p>
+          <p class="pass-msg">{t('playtest.passControl', { name: currentPlayer?.name ?? '' })}</p>
           <button class="primary-btn" onclick={startTurn}>
-            Start Turn
+            {t('playtest.startTurn')}
           </button>
         </div>
 
         <div class="quick-resources">
-          <h3>Players</h3>
+          <h3>{t('playtest.playersLabel')}</h3>
           {#each currentSession.state.players as player, i}
             <div class="player-row" class:active={i === currentSession.state.currentPlayerIndex}>
               <span class="dot" style="background: {player.color}"></span>
@@ -350,7 +358,7 @@
                 {/each}
               </span>
               {#if player.bankrupt}
-                <span class="badge bankrupt">BANKRUPT</span>
+                <span class="badge bankrupt">{t('playtest.bankrupt')}</span>
               {/if}
             </div>
           {/each}
@@ -361,8 +369,8 @@
       <div class="game-ui">
         <div class="sidebar">
           <div class="panel">
-            <div class="dice-rule">Dice: {diceLabel}</div>
-            <h3>Players</h3>
+            <div class="dice-rule">{t('playtest.diceRule', { dice: diceLabel })}</div>
+            <h3>{t('playtest.playersLabel')}</h3>
             {#each currentSession.state.players as player, i}
               <div class="player-row" class:active={i === currentSession.state.currentPlayerIndex && !player.bankrupt} class:bankrupt={player.bankrupt}>
                 <span class="dot" style="background: {player.color}"></span>
@@ -373,7 +381,7 @@
                   {/each}
                 </span>
                 {#if player.bankrupt}
-                  <span class="badge bankrupt">DEAD</span>
+                  <span class="badge bankrupt">{t('playtest.dead')}</span>
                 {/if}
               </div>
             {/each}
@@ -383,9 +391,9 @@
             {#if diceState === 'idle' && !isAnimating}
               {#if currentSession.state.pendingAction}
                 {#if currentSession.state.pendingAction.type === 'route_choice'}
-                  <h3>Choose path:</h3>
+                  <h3>{t('playtest.choosePath')}</h3>
                 {:else}
-                  <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                  <h3>{currentSession.state.pendingAction.title || t('playtest.actionRequired')}</h3>
                 {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
@@ -398,7 +406,7 @@
                 {/each}
               {:else}
                 <button class="roll-btn" onclick={handleRollStart} disabled={loading}>
-                  Roll Dice
+                  {t('playtest.roll')}
                 </button>
               {/if}
             {:else if diceState === 'rolling'}
@@ -408,7 +416,7 @@
                     <div class="dice-face rolling">?</div>
                   {/each}
                 </div>
-                <p>Rolling...</p>
+                <p>{t('playtest.rolling')}</p>
               </div>
             {:else if diceState === 'result' && !isAnimating}
               <div class="dice-result">
@@ -417,13 +425,13 @@
                     <div class="dice-face result">{dieFace(roll)}</div>
                   {/each}
                 </div>
-                <p class="dice-total">Total: <strong>{lastTotal}</strong></p>
+                <p class="dice-total">{t('playtest.total')} <strong>{lastTotal}</strong></p>
               </div>
               {#if currentSession.state.pendingAction}
                 {#if currentSession.state.pendingAction.type === 'route_choice'}
-                  <h3>Choose path:</h3>
+                  <h3>{t('playtest.choosePath')}</h3>
                 {:else}
-                  <h3>{currentSession.state.pendingAction.title || 'Action Required'}</h3>
+                  <h3>{currentSession.state.pendingAction.title || t('playtest.actionRequired')}</h3>
                 {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
@@ -438,13 +446,13 @@
             {/if}
             {#if isAnimating}
               <div class="animating">
-                <p>Moving token...</p>
+                <p>{t('playtest.moving')}</p>
               </div>
             {/if}
           </div>
 
           <div class="panel log-panel">
-            <h3>Event Log</h3>
+            <h3>{t('playtest.eventLog')}</h3>
             <div class="log">
               {#each [...currentSession.state.log].reverse() as event}
                 <div class="log-entry log-{event.type}">{event.message}</div>
@@ -465,7 +473,7 @@
       {#if phase === 'turn_done' && !isAnimating}
         <div class="turn-done-bar">
           <button class="primary-btn" onclick={handleAdvanceTurn} disabled={loading}>
-            {loading ? 'Advancing...' : 'Pass to Next Player'}
+            {loading ? t('playtest.advancing') : t('playtest.passNext')}
           </button>
         </div>
       {/if}

@@ -2,24 +2,49 @@ import type { CatalogGame, GameDefinition, GameSession, GameVersion, PlayerConfi
 
 const BASE = '/api';
 
+/**
+ * An API failure that keeps the server's stable machine-readable code.
+ *
+ * The code is what makes errors translatable: `body.error` is English prose
+ * written for developers, whereas `ACCOUNT_REQUIRED` can be looked up in any
+ * locale. The English message is retained only as a last-resort fallback for a
+ * code the interface does not know about yet.
+ */
+export class ApiError extends Error {
+  readonly code: string;
+  readonly details: string;
+  readonly status: number;
+
+  constructor(code: string, message: string, details: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.details = details;
+    this.status = status;
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const method = options?.method?.toUpperCase() ?? 'GET';
   const csrf = method === 'GET' ? '' : document.cookie.split('; ').find((value) => value.startsWith('rollboard_csrf='))?.split('=')[1] ?? '';
-  const res = await fetch(BASE + url, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf) } : {}), ...options?.headers },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(BASE + url, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf) } : {}), ...options?.headers },
+      ...options,
+    });
+  } catch {
+    throw new ApiError('NETWORK', 'network request failed', '', 0);
+  }
   if (!res.ok) {
-    let errorMsg = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      errorMsg = body.error || errorMsg;
-    } catch {
-      const text = await res.text().catch(() => '');
-      errorMsg = text || res.statusText;
+      throw new ApiError(body.code || 'INTERNAL_ERROR', body.error || `HTTP ${res.status}`, body.details || '', res.status);
+    } catch (cause) {
+      if (cause instanceof ApiError) throw cause;
+      throw new ApiError('INTERNAL_ERROR', res.statusText || `HTTP ${res.status}`, '', res.status);
     }
-    throw new Error(errorMsg);
   }
   if (res.status === 204) {
     return undefined as T;

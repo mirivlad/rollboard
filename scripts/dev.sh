@@ -34,6 +34,7 @@ ROLLBOARD_ADDR='${ROLLBOARD_ADDR:-127.0.0.1:8080}' \
 ROLLBOARD_DATABASE_URL='${ROLLBOARD_DATABASE_URL:-postgres://rollboard:rollboard@127.0.0.1:5432/rollboard?sslmode=disable}' \
 ROLLBOARD_REDIS_URL='${ROLLBOARD_REDIS_URL:-redis://127.0.0.1:6379/0}' \
 ROLLBOARD_APP_ORIGIN='${ROLLBOARD_APP_ORIGIN:-http://127.0.0.1:5173}' \
+ROLLBOARD_LOCALES_DIR='${ROLLBOARD_LOCALES_DIR:-$ROOT_DIR/locales}' \
 exec go run ./cmd/server" &
 BACKEND_PID=$!
 printf '%s\n' "$BACKEND_PID" > /tmp/rollboard-dev-backend.pid

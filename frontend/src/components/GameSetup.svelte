@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GameDefinition } from '../lib/types';
+  import { i18n } from '../lib/i18n.svelte';
 
   type Props = {
     game: GameDefinition;
@@ -12,6 +13,7 @@
   let title = $state('');
   let diceCount = $state(1);
   let diceSides = $state(6);
+  let t = $derived(i18n.t);
 
   $effect(() => {
     if (game.id === setupGameID) return;
@@ -24,7 +26,7 @@
   function updatedGame(): GameDefinition {
     return {
       ...game,
-      title: title.trim() || 'Untitled Game',
+      title: title.trim() || t('game.untitled'),
       rules: {
         ...game.rules,
         dice: {
@@ -36,20 +38,20 @@
   }
 </script>
 
-<section class="setup" aria-label="Game basics">
-  <p class="eyebrow">GUIDED SETUP</p>
-  <h1>Set up the basics</h1>
-  <p>Start with the selected template. You can refine the board, rules and actions later without losing this setup.</p>
+<section class="setup" aria-label={t('setup.panelLabel')}>
+  <p class="eyebrow">{t('setup.eyebrow')}</p>
+  <h1>{t('setup.title')}</h1>
+  <p>{t('setup.intro')}</p>
 
   <form onsubmit={(event) => { event.preventDefault(); void onContinue(updatedGame()); }}>
-    <label>Game title<input aria-label="Game title" bind:value={title} maxlength="120" required /></label>
+    <label>{t('setup.gameTitle')}<input aria-label={t('setup.gameTitle')} bind:value={title} maxlength="120" required /></label>
     <div class="dice">
-      <label>Dice count<input aria-label="Dice count" type="number" bind:value={diceCount} min="1" max="10" /></label>
-      <label>Dice sides<input aria-label="Dice sides" type="number" bind:value={diceSides} min="2" max="100" /></label>
+      <label>{t('setup.diceCount')}<input aria-label={t('setup.diceCount')} type="number" bind:value={diceCount} min="1" max="10" /></label>
+      <label>{t('setup.diceSides')}<input aria-label={t('setup.diceSides')} type="number" bind:value={diceSides} min="2" max="100" /></label>
     </div>
     <div class="actions">
-      <button class="primary" type="submit">Continue to board</button>
-      <button type="button" onclick={() => void onAdvanced(updatedGame())}>Open Advanced Studio</button>
+      <button class="primary" type="submit">{t('setup.continue')}</button>
+      <button type="button" onclick={() => void onAdvanced(updatedGame())}>{t('setup.advanced')}</button>
     </div>
   </form>
 </section>

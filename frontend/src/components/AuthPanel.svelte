@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { i18n } from '../lib/i18n.svelte';
+  import LanguagePicker from './LanguagePicker.svelte';
+
   type Props = {
     onGuest: (displayName: string) => void | Promise<void>;
     onRegister?: (email: string, displayName: string, password: string) => void | Promise<void>;
@@ -12,6 +15,7 @@
   let email = $state('');
   let password = $state('');
   let mode = $state<'guest' | 'register' | 'login'>('guest');
+  let t = $derived(i18n.t);
 
   async function submit() {
     if (mode === 'guest') {
@@ -28,43 +32,47 @@
   }
 </script>
 
-<section class="auth-panel" aria-label="Welcome to Rollboard">
-  <p class="eyebrow">ROLLBOARD</p>
-  <h1>Create and play turn-based board games</h1>
-  <p class="intro">Start a private guest session, or create an account to save drafts and publish games.</p>
+<section class="auth-panel" aria-label={t('auth.panelLabel')}>
+  <div class="top">
+    <p class="eyebrow">{t('auth.eyebrow')}</p>
+    <LanguagePicker />
+  </div>
+  <h1>{t('auth.title')}</h1>
+  <p class="intro">{t('auth.intro')}</p>
 
-  <div class="tabs" role="tablist" aria-label="Sign-in method">
-    <button class:active={mode === 'guest'} onclick={() => (mode = 'guest')} role="tab" aria-selected={mode === 'guest'}>Guest</button>
-    <button class:active={mode === 'register'} onclick={() => (mode = 'register')} role="tab" aria-selected={mode === 'register'}>Create account</button>
-    <button class:active={mode === 'login'} onclick={() => (mode = 'login')} role="tab" aria-selected={mode === 'login'}>Sign in</button>
+  <div class="tabs" role="tablist" aria-label={t('auth.methodLabel')}>
+    <button class:active={mode === 'guest'} onclick={() => (mode = 'guest')} role="tab" aria-selected={mode === 'guest'}>{t('auth.tab.guest')}</button>
+    <button class:active={mode === 'register'} onclick={() => (mode = 'register')} role="tab" aria-selected={mode === 'register'}>{t('auth.tab.register')}</button>
+    <button class:active={mode === 'login'} onclick={() => (mode = 'login')} role="tab" aria-selected={mode === 'login'}>{t('auth.tab.login')}</button>
   </div>
 
   <form onsubmit={(event) => { event.preventDefault(); submit(); }}>
     {#if mode !== 'login'}
       <label>
-        Display name
-        <input bind:value={displayName} minlength="1" maxlength="64" autocomplete="nickname" required placeholder="How should players see you?" />
+        {t('auth.displayName')}
+        <input bind:value={displayName} minlength="1" maxlength="64" autocomplete="nickname" required placeholder={t('auth.displayNamePlaceholder')} />
       </label>
     {/if}
     {#if mode !== 'guest'}
       <label>
-        Email
-        <input bind:value={email} type="email" autocomplete="email" required placeholder="you@example.com" />
+        {t('auth.email')}
+        <input bind:value={email} type="email" autocomplete="email" required placeholder={t('auth.emailPlaceholder')} />
       </label>
       <label>
-        Password
+        {t('auth.password')}
         <input bind:value={password} type="password" minlength="12" autocomplete={mode === 'login' ? 'current-password' : 'new-password'} required />
       </label>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="primary" type="submit" disabled={busy}>
-      {busy ? 'Please wait…' : mode === 'guest' ? 'Continue as guest' : mode === 'register' ? 'Create account' : 'Sign in'}
+      {busy ? t('auth.submit.busy') : mode === 'guest' ? t('auth.submit.guest') : mode === 'register' ? t('auth.submit.register') : t('auth.submit.login')}
     </button>
   </form>
 </section>
 
 <style>
   .auth-panel { width: min(100%, 520px); padding: 2.25rem; border: 1px solid #2a3554; border-radius: 20px; background: #121a2e; box-shadow: 0 22px 60px #05081799; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
   .eyebrow { margin: 0; color: #75d4ff; font-weight: 800; letter-spacing: .12em; font-size: .75rem; }
   h1 { margin: .45rem 0 .75rem; font-size: clamp(1.75rem, 5vw, 2.45rem); line-height: 1.1; color: #f5f7ff; }
   .intro { color: #aab6d3; line-height: 1.55; }
