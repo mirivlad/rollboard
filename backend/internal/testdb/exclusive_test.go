@@ -3,6 +3,7 @@ package testdb
 import (
 	"context"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,23 +20,45 @@ func TestAcquireExclusiveSerializesTestDatabaseAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Deferred calls run last-in-first-out, and the order matters. Cancelling
+	// the contender unblocks its pg_advisory_lock so the connection returns to
+	// the pool; waiting for the goroutine guarantees that release has happened;
+	// only then can pool.Close() finish. Closing a pool that still has a
+	// connection blocked inside a query hangs forever, which is exactly how
+	// this test used to wedge the whole suite when it failed.
 	defer pool.Close()
+
+	var contender sync.WaitGroup
+	defer contender.Wait()
+
+	contenderCtx, cancelContender := context.WithCancel(ctx)
+	defer cancelContender()
+
 	releaseFirst, err := AcquireExclusive(ctx, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer releaseFirst()
+	firstReleased := false
+	defer func() {
+		if !firstReleased {
+			releaseFirst()
+		}
+	}()
 
 	acquiredSecond := make(chan func(), 1)
 	errs := make(chan error, 1)
+	contender.Add(1)
 	go func() {
-		release, err := AcquireExclusive(ctx, pool)
+		defer contender.Done()
+		release, err := AcquireExclusive(contenderCtx, pool)
 		if err != nil {
 			errs <- err
 			return
 		}
 		acquiredSecond <- release
 	}()
+
 	select {
 	case release := <-acquiredSecond:
 		release()
@@ -44,14 +67,18 @@ func TestAcquireExclusiveSerializesTestDatabaseAccess(t *testing.T) {
 		t.Fatal(err)
 	case <-time.After(100 * time.Millisecond):
 	}
+
 	releaseFirst()
-	releaseFirst = func() {}
+	firstReleased = true
+
+	// Generous, because the shared test database may still be serving another
+	// package's exclusive section when the suite runs packages in parallel.
 	select {
 	case release := <-acquiredSecond:
 		release()
 	case err := <-errs:
 		t.Fatal(err)
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("second caller did not acquire lock after release")
 	}
 }
