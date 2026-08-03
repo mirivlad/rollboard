@@ -1,12 +1,17 @@
 # Rollboard — current state
 
-Last updated: 2026-08-02
+Last updated: 2026-08-04
 
-## Implemented and automatedly verified
+## Implemented and verified
 
 - PostgreSQL migrations and Docker/Portainer manifests; SQLite is not a supported runtime store.
 - Accounts, guest identities, opaque cookie sessions, Argon2id passwords and CSRF checks.
+- Rate limiting on registration, login and guest entry, configurable through
+  `ROLLBOARD_AUTH_RATE_LIMIT`.
 - Author-owned private drafts, reloadable author catalog, immutable published game versions and server-side validation.
+- Every authoring route is owner-scoped. Drafts, validation, playtest and hotseat
+  sessions are reachable only by the account that owns them; another account's
+  resource reads as missing rather than forbidden.
 - PostgreSQL connection-pool limit and indexes for owner-scoped catalog queries.
 - Generic hotseat runtime plus multiplayer rooms pinned to `game_versions.id`.
 - Host-created rooms, guest/account joins, visible host mute/kick controls, durable room-only chat.
@@ -15,27 +20,42 @@ Last updated: 2026-08-02
 - Durable PostgreSQL room-event journal and per-actor UUID command receipts for start, roll, action and chat. Reconnects replay up to 64 contiguous events, otherwise safely receive the current snapshot.
 - Svelte author dashboard with template picker, guided basics or direct advanced editor, lobby, room view, WebSocket live state and chat UI. Online rolls display the server-provided dice result and animate only the server-provided path.
 
-## Verification completed on 2026-08-02
+## Test and CI status
 
-- `make stop-dev`
-- `make smoke` three times
-- `make check`
-- `make test`
-- `frontend: npm test`, `npm run check`, `npm run build`
-- `make check` runs a real Redis two-replica fan-out test.
-- Docker image build and Docker Compose app startup reached `/api/health`.
+`make test` runs the integration suite against a real PostgreSQL and Redis.
+113 tests run and none skip. CI fails the build if any test reports SKIP.
 
-All of the above passed. Smoke covers guest-to-account claim, draft creation,
-publication, account room creation and guest join. Backend integration tests cover
-authoritative start/roll and out-of-turn rejection.
+Until 2026-08-04 this was not true: every integration test guarded itself behind
+`ROLLBOARD_TEST_DATABASE_URL`, nothing set it, and the suite reported `ok` for
+each package while skipping roughly twenty tests covering persistence, catalog,
+rooms and identity. Treat any earlier "automatedly verified" claim in this
+project's history as unproven.
 
-## Browser verification completed on 2026-08-02
+GitHub Actions runs gofmt, `go vet`, the Go suite with integration tests
+enabled, `svelte-check`, vitest, the frontend build, and a container image
+build published to `ghcr.io/mirivlad/rollboard` on master.
 
-- Two Chromium/Playwright contexts verified account publication → room creation → guest join → live roster refresh → authenticated WebSocket upgrades → host start → server-authoritative roll with visible dice result → generic purchase choice resolution → chat broadcast → host mute enforcement. A reconnecting authenticated browser WebSocket with `since=2` received the persisted roll event at sequence `3`. Screenshot: `/tmp/rollboard-multiplayer.png` (test artifact, not committed).
+## Verification completed on 2026-08-04
 
-## Release blockers / next work
+- `make check` (gofmt, vet, full Go suite, Redis fan-out, svelte-check, vitest, frontend build, demo validation)
+- `make smoke`
+- Docker image build
+- The authorization fix was verified by re-running the original exploit against
+  a live server: an anonymous `PUT /api/games/{id}` now returns 404 and leaves
+  the owner's game untouched, a second account cannot read, roll or playtest
+  another account's draft or session, and the owner's own
+  create → save → playtest → roll path still works.
 
-- Presence and rate limiting are not implemented. Journal retention/pruning and load testing still need explicit production policy before a large public launch.
+## Known limitations
+
+- The rate limiter is per-process. Behind N replicas the effective ceiling is
+  N times the configured limit. Move it to the Redis backplane if a deployment
+  needs an exact global budget.
+- Presence is not implemented. Journal retention/pruning and load testing still
+  need explicit production policy before a large public launch.
 - Public room discovery and invite links are not implemented.
-- A portable automated Playwright runner is not implemented; `scripts/browser-smoke.sh` intentionally directs developers to the manual checklist.
-- The existing hotseat BoardView still needs responsive visual QA across target sizes.
+- The interface is English-only; there is no localisation layer yet.
+- No design tokens: colours are hard-coded per component, there are no focus
+  styles, no light theme, and the editor has no responsive layout.
+- `scripts/browser-smoke.sh` is still a stub that points at the manual
+  checklist. A portable Playwright runner is not implemented.
