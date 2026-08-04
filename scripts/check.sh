@@ -26,6 +26,9 @@ echo "=== Verifying Redis realtime fan-out ==="
 "$ROOT/scripts/test-realtime-redis.sh"
 
 echo ""
+"$ROOT/scripts/shutdown-smoke.sh"
+
+echo ""
 echo "=== Running frontend checks ==="
 cd "$ROOT/frontend"
 if [ ! -d node_modules ]; then

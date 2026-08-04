@@ -47,6 +47,10 @@ type Config struct {
 	UploadTotalBytes int64
 	// UploadRateLimit is uploads per minute, per account.
 	UploadRateLimit int
+	// TrustedProxies are the addresses or CIDR blocks whose X-Forwarded-For
+	// may be believed. Behind nginx without this, every visitor shares one
+	// rate-limit budget.
+	TrustedProxies string
 }
 
 func Load() (Config, error) {
@@ -95,6 +99,7 @@ func Load() (Config, error) {
 		UploadQuotaBytes: int64(uploadQuotaMB) << 20,
 		UploadTotalBytes: int64(uploadTotalMB) << 20,
 		UploadRateLimit:  int(uploadRateLimit),
+		TrustedProxies:   strings.TrimSpace(os.Getenv("ROLLBOARD_TRUSTED_PROXIES")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

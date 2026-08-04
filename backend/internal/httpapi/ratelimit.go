@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,23 +81,106 @@ func (l *rateLimiter) collectExpired(now time.Time) {
 	}
 }
 
+// trustedProxies decides whose forwarded headers may be believed.
+//
+// A header from a direct client is worthless — anybody can write
+// X-Forwarded-For and reset their own budget on every request — so it is read
+// only when the connection itself comes from an address the operator listed.
+// Without this the limiter keyed every visitor behind nginx to the proxy's own
+// address, and one person's failed sign-ins locked out everybody else.
+type trustedProxies struct {
+	nets []*net.IPNet
+	ips  []net.IP
+}
+
+// parseTrustedProxies accepts addresses and CIDR blocks, comma separated.
+func parseTrustedProxies(list string) (*trustedProxies, error) {
+	trusted := &trustedProxies{}
+	for _, entry := range strings.Split(list, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if _, network, err := net.ParseCIDR(entry); err == nil {
+			trusted.nets = append(trusted.nets, network)
+			continue
+		}
+		ip := net.ParseIP(entry)
+		if ip == nil {
+			return nil, fmt.Errorf("%q is not an IP address or CIDR block", entry)
+		}
+		trusted.ips = append(trusted.ips, ip)
+	}
+	return trusted, nil
+}
+
+func (t *trustedProxies) has(ip net.IP) bool {
+	if t == nil || ip == nil {
+		return false
+	}
+	for _, known := range t.ips {
+		if known.Equal(ip) {
+			return true
+		}
+	}
+	for _, network := range t.nets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // clientKey identifies the caller by source IP.
 //
-// Proxy headers are intentionally ignored: trusting a client-supplied
-// X-Forwarded-For would let an attacker reset their own budget on every
-// request. Deployments behind a reverse proxy should rate limit at the proxy
-// as well.
-func clientKey(r *http.Request) string {
+// Behind trusted proxies the chain is walked from the right, skipping hops the
+// operator vouched for, and the first address that is not one of theirs is the
+// client. Walking from the left would take whatever the client typed.
+func clientKey(r *http.Request, trusted *trustedProxies) string {
+	remote := remoteIP(r)
+	if trusted == nil || !trusted.has(remote) {
+		if remote == nil {
+			return r.RemoteAddr
+		}
+		return remote.String()
+	}
+
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded == "" {
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			if ip := net.ParseIP(real); ip != nil {
+				return ip.String()
+			}
+		}
+		return remote.String()
+	}
+	hops := strings.Split(forwarded, ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			// A malformed hop ends the walk: everything to its left was
+			// written by somebody we have no reason to believe.
+			break
+		}
+		if !trusted.has(ip) {
+			return ip.String()
+		}
+	}
+	// Every hop was a trusted proxy, so the nearest one is as far as we get.
+	return remote.String()
+}
+
+func remoteIP(r *http.Request) net.IP {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	return net.ParseIP(host)
 }
 
 // enforceRateLimit writes a 429 and reports false when the caller is over budget.
-func enforceRateLimit(w http.ResponseWriter, r *http.Request, limiter *rateLimiter) bool {
-	allowed, retryAfter := limiter.allow(clientKey(r))
+func enforceRateLimit(w http.ResponseWriter, r *http.Request, limiter *rateLimiter, trusted *trustedProxies) bool {
+	allowed, retryAfter := limiter.allow(clientKey(r, trusted))
 	if allowed {
 		return true
 	}

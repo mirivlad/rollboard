@@ -35,17 +35,18 @@ const (
 )
 
 type API struct {
-	store         storage.Store
-	identity      identity.Service
-	catalog       CatalogService
-	rooms         RoomService
-	hub           *realtime.Hub
-	auth          AuthOptions
-	authLimiter   *rateLimiter
-	guestLimiter  *rateLimiter
-	locales       LocaleOptions
-	uploads       UploadOptions
-	uploadLimiter *rateLimiter
+	store          storage.Store
+	identity       identity.Service
+	catalog        CatalogService
+	rooms          RoomService
+	hub            *realtime.Hub
+	auth           AuthOptions
+	authLimiter    *rateLimiter
+	guestLimiter   *rateLimiter
+	locales        LocaleOptions
+	uploads        UploadOptions
+	uploadLimiter  *rateLimiter
+	trustedProxies *trustedProxies
 }
 
 type CatalogService interface {
@@ -79,6 +80,11 @@ type AuthOptions struct {
 	CookieSecure            bool
 	SessionTTL              time.Duration
 	WebSocketOriginPatterns []string
+	// TrustedProxies lists the addresses or CIDR blocks whose forwarded
+	// headers may be believed. Empty means every request is keyed by the
+	// address it actually arrived from, which is right for a server exposed
+	// directly and wrong for one behind nginx.
+	TrustedProxies string
 	// RateLimit caps credential attempts per minute per source IP. Zero keeps
 	// the built-in default.
 	RateLimit int
@@ -114,6 +120,14 @@ func (a *API) WithAuthOptions(options AuthOptions) *API {
 		a.auth.RateLimit = options.RateLimit
 		a.authLimiter = newRateLimiter(options.RateLimit, rateLimitWindow)
 		a.guestLimiter = newRateLimiter(options.RateLimit*guestRateLimit/authRateLimit, rateLimitWindow)
+	}
+	if trusted, err := parseTrustedProxies(options.TrustedProxies); err == nil {
+		a.trustedProxies = trusted
+	} else {
+		// A misconfigured list must not silently start trusting everything;
+		// the safe reading is to trust nobody.
+		log.Printf("ignoring ROLLBOARD_TRUSTED_PROXIES: %v", err)
+		a.trustedProxies = nil
 	}
 	return a
 }
@@ -162,7 +176,7 @@ func (a *API) handleGuestEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
 		return
 	}
-	if !enforceRateLimit(w, r, a.guestLimiter) {
+	if !enforceRateLimit(w, r, a.guestLimiter, a.trustedProxies) {
 		return
 	}
 	var body struct {
@@ -201,7 +215,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
 		return
 	}
-	if !enforceRateLimit(w, r, a.authLimiter) {
+	if !enforceRateLimit(w, r, a.authLimiter, a.trustedProxies) {
 		return
 	}
 	var body struct {
@@ -362,7 +376,7 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "identity service not ready", "try again later")
 		return
 	}
-	if !enforceRateLimit(w, r, a.authLimiter) {
+	if !enforceRateLimit(w, r, a.authLimiter, a.trustedProxies) {
 		return
 	}
 	var input identity.RegistrationInput

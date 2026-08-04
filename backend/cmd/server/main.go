@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -12,8 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"syscall"
+	"time"
 
 	"rollboard/internal/catalog"
 	"rollboard/internal/config"
@@ -76,6 +80,7 @@ func main() {
 			CookieSecure: cfg.CookieSecure, SessionTTL: cfg.SessionTTL,
 			WebSocketOriginPatterns: []string{appOrigin.Host},
 			RateLimit:               cfg.AuthRateLimit,
+			TrustedProxies:          cfg.TrustedProxies,
 		}).
 		WithLocales(httpapi.LocaleOptions{Dir: cfg.LocalesDir}).
 		WithUploads(httpapi.UploadOptions{
@@ -100,9 +105,51 @@ func main() {
 
 	handler := recoveryMiddleware(loggerMiddleware(corsMiddleware(mux, cfg.AppOrigin)))
 
-	log.Printf("rollboard server starting on %s", *addr)
-	if err := http.ListenAndServe(*addr, handler); err != nil {
-		log.Fatalf("server error: %v", err)
+	// Timeouts, chosen for what this server actually serves.
+	//
+	// ReadHeaderTimeout is short because headers arrive in one go; a
+	// connection that dribbles them out is holding a slot for nothing.
+	// ReadTimeout has to allow a 2 MB image over a slow link. There is
+	// deliberately no WriteTimeout: it applies to a WebSocket for the whole
+	// life of the connection, so setting one would cut every live room off at
+	// the deadline. Idle connections are bounded instead.
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	// Shut down in the order things depend on each other: stop accepting, let
+	// requests in flight finish, then close the hub and its backplane, and only
+	// then the database the hub was writing to.
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
+	serverErrors := make(chan error, 1)
+
+	go func() {
+		log.Printf("rollboard server starting on %s", *addr)
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	case sig := <-shutdown:
+		log.Printf("received %s, shutting down", sig)
+		// Bounded, because a container runtime will send SIGKILL anyway; this
+		// decides how much of that grace period requests get.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("graceful shutdown timed out, closing: %v", err)
+			_ = server.Close()
+		}
+		log.Print("shutdown complete")
 	}
 }
 

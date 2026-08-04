@@ -144,6 +144,32 @@ rollboard.example.com {
 **Set `ROLLBOARD_COOKIE_SECURE=true` whenever the site is served over HTTPS.**
 Session cookies are otherwise sent over plain HTTP too.
 
+**Set `ROLLBOARD_TRUSTED_PROXIES` to the proxy's address.** Every request
+arrives from the proxy, so without this the sign-in rate limit counts all your
+visitors as one person, and a few failed attempts from anybody lock out
+everybody. The header is read *only* from addresses listed here — one from a
+direct client is worthless, since anybody can write it.
+
+```bash
+# Caddy or nginx on the same host
+ROLLBOARD_TRUSTED_PROXIES=127.0.0.1,::1
+# nginx in another container on the default Docker bridge
+ROLLBOARD_TRUSTED_PROXIES=172.16.0.0/12
+```
+
+With nginx, pass the address on:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Host $host;
+    # Live rooms are WebSockets.
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
 ### 3. Back up PostgreSQL
 
 Everything durable lives in PostgreSQL: accounts, drafts, published versions,
@@ -186,8 +212,12 @@ as a starting point.
 | `ROLLBOARD_COOKIE_SECURE` | `false` | Set to `true` behind HTTPS. |
 | `ROLLBOARD_SESSION_TTL` | `720h` | Session lifetime, as a Go duration. |
 | `ROLLBOARD_AUTH_RATE_LIMIT` | `10` | Credential attempts per minute, per source IP, per replica. |
+| `ROLLBOARD_TRUSTED_PROXIES` | unset | Addresses or CIDR blocks whose `X-Forwarded-For` is believed. **Set this behind a reverse proxy**, or all visitors share one rate-limit budget. |
 | `ROLLBOARD_LOCALES_DIR` | unset (`/app/locales` in the image) | Translation catalogs. |
 | `ROLLBOARD_UPLOADS_DIR` | unset (`/app/uploads` in the image) | Where author-uploaded images are stored. Leave unset to disable uploading. |
+| `ROLLBOARD_UPLOAD_QUOTA_MB` | `50` | How much one account's images may total. |
+| `ROLLBOARD_UPLOAD_TOTAL_MB` | `5000` | How much this deployment stores in all. |
+| `ROLLBOARD_UPLOAD_RATE_LIMIT` | `30` | Uploads per minute, per account. |
 | `ROLLBOARD_STATIC_DIR` | unset (`/app/frontend` in the image) | Built frontend to serve. Leave unset in development, where Vite serves it. |
 
 Invalid values fail at startup with a clear message rather than at first use.
@@ -313,14 +343,14 @@ Stated plainly, so you can judge whether Rollboard fits before deploying it:
 
 - **No public game discovery.** Rooms are shared by ID or invite link; there is no browsable catalogue.
 - **No presence indicator.** You cannot see who is currently connected, only who is a member.
-- **Rate limiting is per replica.** Behind N replicas the effective ceiling is N times the configured limit.
+- **Rate limiting is per replica.** Behind N replicas the effective ceiling is N times the configured limit. Behind a proxy it also needs `ROLLBOARD_TRUSTED_PROXIES`, or every visitor shares one budget.
 - **No bots.** Every player must be a human.
 - **No undo.** The event journal records what happened but cannot roll it back.
 - **Bidding is stepped, not free-form.** An auction offers a few raises the server generated; a player cannot type an arbitrary amount.
 - **No table lookups.** Tiered values are written as descending `if_*_ge` chains, which works but reads long.
 - **Journal retention is unbounded.** Pruning policy is not implemented; busy deployments will want one.
 - **No load testing has been done.** Treat capacity claims as unproven.
-- **Uploads are images only**, at most 2 MB, with the type sniffed from the bytes rather than trusted from the filename. SVG is refused because it can carry script.
+- **Uploads are images only**, at most 2 MB, with the type sniffed from the bytes rather than trusted from the filename. SVG is refused because it can carry script. Quotas bound them; images no longer used by any game are not collected automatically — authors delete them.
 - **No OAuth**, and no author-supplied code of any kind.
 - **Mini-games are reserved but not runnable.** `launch_minigame` is a typed, versioned placeholder that publication deliberately rejects, so untrusted code cannot execute in the application process.
 

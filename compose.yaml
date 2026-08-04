@@ -37,6 +37,9 @@ services:
       ROLLBOARD_COOKIE_SECURE: "false"
       ROLLBOARD_LOCALES_DIR: /app/locales
       ROLLBOARD_UPLOADS_DIR: /app/uploads
+      # Set this to the reverse proxy in front of the stack, or one visitor's
+      # failed sign-ins will rate limit everybody behind it.
+      ROLLBOARD_TRUSTED_PROXIES: ${ROLLBOARD_TRUSTED_PROXIES:-}
       ROLLBOARD_UPLOAD_QUOTA_MB: ${ROLLBOARD_UPLOAD_QUOTA_MB:-50}
       ROLLBOARD_UPLOAD_TOTAL_MB: ${ROLLBOARD_UPLOAD_TOTAL_MB:-5000}
     volumes:
