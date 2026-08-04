@@ -55,6 +55,44 @@ func validateAction(action ActionDefinition) []string {
 		for _, a := range action.Else {
 			errs = append(errs, validateAction(a)...)
 		}
+	case "set_cell_level":
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "set_cell_level: amount must be non-negative")
+		}
+	case "if_cell_level_ge":
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "if_cell_level_ge: amount must be non-negative")
+		}
+		errs = append(errs, validateBranches(action)...)
+	case "set_cell_mortgaged":
+		if action.Target != "true" && action.Target != "false" {
+			errs = append(errs, `set_cell_mortgaged: target must be "true" or "false"`)
+		}
+	case "if_cell_mortgaged":
+		errs = append(errs, validateBranches(action)...)
+	case "move_player_to":
+		if strings.TrimSpace(action.To) == "" {
+			errs = append(errs, "move_player_to: to (target cell ID) is required")
+		}
+	case "skip_turns":
+		if action.Amount == nil && strings.TrimSpace(action.AmountField) == "" {
+			errs = append(errs, "skip_turns: amount or amountField is required")
+		}
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "skip_turns: amount must be non-negative")
+		}
+	case "random_branch":
+		if len(action.Options) < 2 {
+			errs = append(errs, "random_branch: at least two options are required")
+		}
+		for _, option := range action.Options {
+			if strings.TrimSpace(option.ID) == "" {
+				errs = append(errs, "random_branch: every option needs an id")
+			}
+			for _, nested := range option.Then {
+				errs = append(errs, validateAction(nested)...)
+			}
+		}
 	case "launch_minigame":
 		if action.MiniGame == nil || strings.TrimSpace(action.MiniGame.ModuleID) == "" || action.MiniGame.Version < 1 {
 			errs = append(errs, "launch_minigame: miniGame.moduleId and positive miniGame.version are required")
@@ -67,6 +105,18 @@ func validateAction(action ActionDefinition) []string {
 	return errs
 }
 
+// validateBranches checks the then/else arms of a conditional action.
+func validateBranches(action ActionDefinition) []string {
+	var errs []string
+	for _, a := range action.Then {
+		errs = append(errs, validateAction(a)...)
+	}
+	for _, a := range action.Else {
+		errs = append(errs, validateAction(a)...)
+	}
+	return errs
+}
+
 func validateActions(cellID string, listName string, actions []ActionDefinition, g *GameDefinition) []string {
 	var errs []string
 	if actions == nil {
@@ -74,8 +124,41 @@ func validateActions(cellID string, listName string, actions []ActionDefinition,
 	}
 	for i, a := range actions {
 		aerrs := validateAction(a)
+		aerrs = append(aerrs, validateCellReferences(a, cellID, g)...)
 		for _, e := range aerrs {
 			errs = append(errs, fmt.Sprintf("cell '%s' %s action[%d]: %s", cellID, listName, i, e))
+		}
+	}
+	return errs
+}
+
+// validateCellReferences resolves every destination a teleport can reach,
+// including the ones nested inside branches and random options.
+//
+// A teleport to a missing cell would only surface at play time, and a teleport
+// to the cell that owns the action would re-run that same action forever, so
+// both are rejected at publication.
+func validateCellReferences(action ActionDefinition, owningCellID string, g *GameDefinition) []string {
+	var errs []string
+	if action.Type == "move_player_to" {
+		to := strings.TrimSpace(action.To)
+		if to != "" {
+			if g.Board.getCellByID(to) == nil {
+				errs = append(errs, fmt.Sprintf("move_player_to: no cell %q", to))
+			} else if to == owningCellID {
+				errs = append(errs, "move_player_to: a cell cannot move a player onto itself")
+			}
+		}
+	}
+	for _, nested := range action.Then {
+		errs = append(errs, validateCellReferences(nested, owningCellID, g)...)
+	}
+	for _, nested := range action.Else {
+		errs = append(errs, validateCellReferences(nested, owningCellID, g)...)
+	}
+	for _, option := range action.Options {
+		for _, nested := range option.Then {
+			errs = append(errs, validateCellReferences(nested, owningCellID, g)...)
 		}
 	}
 	return errs

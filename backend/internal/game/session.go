@@ -40,6 +40,9 @@ type PlayerState struct {
 	PositionCellID string         `json:"positionCellId"`
 	Resources      map[string]int `json:"resources"`
 	Bankrupt       bool           `json:"bankrupt"`
+	// SkipTurns counts turns this player forfeits before playing again. Jail,
+	// "lose a turn" and stun effects all reduce to this one counter.
+	SkipTurns int `json:"skipTurns,omitempty"`
 }
 
 type CellState struct {

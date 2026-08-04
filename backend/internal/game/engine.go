@@ -458,6 +458,9 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 			fmt.Sprintf("%s paid %d %s to %s", player.Name, actual, res, targetPlayer.Name), nil)}
 
 	case "set_cell_owner":
+		// Assigning an owner resets buildings and mortgage state, because a
+		// property changing hands must not carry the previous owner's
+		// investment with it.
 		switch a.Target {
 		case "current":
 			s.State.CellStates[cell.ID] = CellState{OwnerPlayerID: player.ID}
@@ -506,6 +509,81 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 			return s.executeActions(a.Then, player, cell)
 		}
 		return s.executeActions(a.Else, player, cell)
+
+	case "set_cell_level":
+		// Building levels are generic: houses and hotels in a property game,
+		// fortification in a war game, growth stages in a farming game.
+		state := s.State.CellStates[cell.ID]
+		level := resolveAmount(a, cell.Fields)
+		if level < 0 {
+			level = 0
+		}
+		state.Level = level
+		s.State.CellStates[cell.ID] = state
+		return []GameEvent{NewGameEvent("set_cell_level",
+			fmt.Sprintf("%s set %s to level %d", player.Name, cell.Title, level), nil)}
+
+	case "if_cell_level_ge":
+		if s.State.CellStates[cell.ID].Level >= resolveAmount(a, cell.Fields) {
+			return s.executeActions(a.Then, player, cell)
+		}
+		return s.executeActions(a.Else, player, cell)
+
+	case "set_cell_mortgaged":
+		state := s.State.CellStates[cell.ID]
+		state.Mortgaged = a.Target != "false"
+		s.State.CellStates[cell.ID] = state
+		verb := "mortgaged"
+		if !state.Mortgaged {
+			verb = "redeemed"
+		}
+		return []GameEvent{NewGameEvent("set_cell_mortgaged",
+			fmt.Sprintf("%s %s %s", player.Name, verb, cell.Title), nil)}
+
+	case "if_cell_mortgaged":
+		if s.State.CellStates[cell.ID].Mortgaged {
+			return s.executeActions(a.Then, player, cell)
+		}
+		return s.executeActions(a.Else, player, cell)
+
+	case "move_player_to":
+		target := s.Definition.Board.getCellByID(a.To)
+		if target == nil {
+			return []GameEvent{NewGameEvent("invalid_action",
+				fmt.Sprintf("Cannot move %s: no cell %q", player.Name, a.To), nil)}
+		}
+		player.PositionCellID = target.ID
+		events := []GameEvent{NewGameEvent("move",
+			fmt.Sprintf("%s moved to %s", player.Name, target.Title), map[string]any{
+				"playerId": player.ID,
+				"path":     []string{target.ID},
+			})}
+		// Actions on the destination run, otherwise "go to jail" would land a
+		// player on a cell without its consequences. Recursion is bounded
+		// because a teleport chain that returns to its own start would need the
+		// definition to be written that way, and validation rejects a cell
+		// whose own onLand teleports to itself.
+		return append(events, s.executeActions(target.OnLand, player, target)...)
+
+	case "skip_turns":
+		turns := resolveAmount(a, cell.Fields)
+		if turns < 0 {
+			turns = 0
+		}
+		player.SkipTurns += turns
+		return []GameEvent{NewGameEvent("skip_turns",
+			fmt.Sprintf("%s loses %d turn(s)", player.Name, turns), nil)}
+
+	case "random_branch":
+		// Server-side randomness, like the dice: the client never decides an
+		// outcome. This is what makes chance and event cards possible.
+		if len(a.Options) == 0 {
+			return nil
+		}
+		picked := a.Options[rand.Intn(len(a.Options))]
+		events := []GameEvent{NewGameEvent("random_branch",
+			fmt.Sprintf("%s: %s", player.Name, picked.Title), nil)}
+		return append(events, s.executeActions(picked.Then, player, cell)...)
 
 	case "if_resource_ge":
 		amount := resolveAmount(a, cell.Fields)
@@ -683,13 +761,39 @@ func (s *GameSession) advanceTurn() {
 
 	playerCount := len(s.State.Players)
 	nextIdx := (s.State.CurrentPlayerIndex + 1) % playerCount
-	for s.State.Players[nextIdx].Bankrupt {
-		nextIdx = (nextIdx + 1) % playerCount
+	rounds := 0
+	if nextIdx <= s.State.CurrentPlayerIndex {
+		rounds++
 	}
 
-	if nextIdx <= s.State.CurrentPlayerIndex {
-		s.State.RoundNumber++
+	// Walk forward past bankrupt players, and past anyone still serving a
+	// forfeited turn. Each skipped player consumes one of their pending turns,
+	// so a jail sentence measured in turns actually elapses. The loop is
+	// bounded by the number of skips outstanding plus the player count, and
+	// activePlayers > 1 above guarantees at least one player can act.
+	for {
+		next := &s.State.Players[nextIdx]
+		if next.Bankrupt {
+			nextIdx = (nextIdx + 1) % playerCount
+			if nextIdx == 0 {
+				rounds++
+			}
+			continue
+		}
+		if next.SkipTurns > 0 {
+			next.SkipTurns--
+			s.State.Log = append(s.State.Log, NewGameEvent("turn_skipped",
+				fmt.Sprintf("%s sits this turn out", next.Name), nil))
+			nextIdx = (nextIdx + 1) % playerCount
+			if nextIdx == 0 {
+				rounds++
+			}
+			continue
+		}
+		break
 	}
+
+	s.State.RoundNumber += rounds
 	s.State.CurrentPlayerIndex = nextIdx
 	s.State.TurnNumber++
 }
