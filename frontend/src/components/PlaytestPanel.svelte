@@ -4,6 +4,7 @@
   import { errorMessage, i18n } from '../lib/i18n.svelte';
   import BoardView from './BoardView.svelte';
   import InventoryPanel from './InventoryPanel.svelte';
+  import TradePanel from './TradePanel.svelte';
 
   let { currentGame, session, onSessionCreated, onBack }: {
     currentGame: GameDefinition;
@@ -106,6 +107,10 @@
   let hasInventory = $derived(
     Object.keys(currentSession?.definition.rules.items ?? {}).length > 0
   );
+  // Trading is offered on your own turn, with no decision outstanding.
+  let canTrade = $derived(Boolean(
+    currentSession && !loading && diceState === 'idle' && !isAnimating && !currentSession.state.pendingAction
+  ));
 
   // Cleanup timers when session changes (e.g. HMR reload, game switch)
   let prevSessionId = $state<string | null>(null);
@@ -229,6 +234,19 @@
     error = '';
     try {
       currentSession = await api.manageInventory(currentSession.id, operation, target);
+    } catch (e: unknown) {
+      error = errorMessage(t, e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleTrade(offer: Parameters<typeof api.proposeTrade>[1]) {
+    if (!currentSession) return;
+    loading = true;
+    error = '';
+    try {
+      currentSession = await api.proposeTrade(currentSession.id, offer);
     } catch (e: unknown) {
       error = errorMessage(t, e);
     } finally {
@@ -480,6 +498,10 @@
                 canAct={!loading && diceState === 'idle' && !isAnimating && !currentSession.state.pendingAction}
                 onAction={handleInventory}
               />
+              {#if canTrade && currentPlayer}
+                <hr class="panel-rule" />
+                <TradePanel session={currentSession} player={currentPlayer} onPropose={handleTrade} />
+              {/if}
             </div>
           {/if}
 
@@ -595,6 +617,7 @@
 
   .animating p { color: var(--accent); font-style: italic; }
 
+  .panel-rule { border: 0; border-top: 1px solid var(--border-subtle); margin: var(--space-3) 0; }
   .log-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
   .log { flex: 1; overflow-y: auto; font-size: 11px; }
   .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text-muted); }

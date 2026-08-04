@@ -34,6 +34,8 @@ type Config struct {
 	// LocalesDir holds one <tag>.json translation catalog per language. Mount a
 	// volume here to add or override translations without rebuilding the image.
 	LocalesDir string
+	// UploadsDir stores author-uploaded images. Empty disables uploading.
+	UploadsDir string
 }
 
 func Load() (Config, error) {
@@ -65,6 +67,7 @@ func Load() (Config, error) {
 		StaticDir:        strings.TrimSpace(os.Getenv("ROLLBOARD_STATIC_DIR")),
 		AuthRateLimit:    int(authRateLimit),
 		LocalesDir:       strings.TrimSpace(os.Getenv("ROLLBOARD_LOCALES_DIR")),
+		UploadsDir:       strings.TrimSpace(os.Getenv("ROLLBOARD_UPLOADS_DIR")),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

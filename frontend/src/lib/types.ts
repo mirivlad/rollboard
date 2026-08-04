@@ -93,11 +93,32 @@ export interface FieldDefinition {
   options?: string[];
 }
 
+export interface AmountTerm {
+  kind: 'const' | 'field' | 'stat' | 'resource';
+  name?: string;
+  value?: number;
+}
+
+/**
+ * A computed amount. Fixed shape rather than an expression tree, so the editor
+ * stays a handful of dropdowns: base (+plus) (-minus), scaled, then clamped.
+ */
+export interface AmountFormula {
+  base?: AmountTerm;
+  plus?: AmountTerm;
+  minus?: AmountTerm;
+  times?: number;
+  dividedBy?: number;
+  min?: number;
+  max?: number;
+}
+
 export interface ActionDefinition {
   type: string;
   resource?: string;
   amount?: number;
   amountField?: string;
+  formula?: AmountFormula;
   target?: string;
   to?: string;
   field?: string;

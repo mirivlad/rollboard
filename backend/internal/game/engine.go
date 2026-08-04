@@ -439,7 +439,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 
 	case "gain_resource":
 		res := a.Resource
-		amount := resolveAmount(a, cell.Fields)
+		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
@@ -449,7 +449,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 
 	case "lose_resource":
 		res := a.Resource
-		amount := resolveAmount(a, cell.Fields)
+		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
@@ -463,7 +463,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 
 	case "transfer_resource":
 		res := a.Resource
-		amount := resolveAmount(a, cell.Fields)
+		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
@@ -546,7 +546,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		// Building levels are generic: houses and hotels in a property game,
 		// fortification in a war game, growth stages in a farming game.
 		state := s.State.CellStates[cell.ID]
-		level := resolveAmount(a, cell.Fields)
+		level := s.amountFor(a, player, cell)
 		if level < 0 {
 			level = 0
 		}
@@ -556,7 +556,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 			fmt.Sprintf("%s set %s to level %d", player.Name, cell.Title, level), nil)}
 
 	case "if_cell_level_ge":
-		if s.State.CellStates[cell.ID].Level >= resolveAmount(a, cell.Fields) {
+		if s.State.CellStates[cell.ID].Level >= s.amountFor(a, player, cell) {
 			return s.executeActions(a.Then, player, cell)
 		}
 		return s.executeActions(a.Else, player, cell)
@@ -599,7 +599,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		return append(events, s.executeActions(target.OnLand, player, target)...)
 
 	case "skip_turns":
-		turns := resolveAmount(a, cell.Fields)
+		turns := s.amountFor(a, player, cell)
 		if turns < 0 {
 			turns = 0
 		}
@@ -619,10 +619,10 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		return append(events, s.executeActions(picked.Then, player, cell)...)
 
 	case "grant_item":
-		return s.grantItem(player, a.Field, resolveAmountOrOne(a, cell.Fields))
+		return s.grantItem(player, a.Field, s.amountForOrOne(a, player, cell))
 
 	case "remove_item":
-		return s.removeItem(player, a.Field, resolveAmountOrOne(a, cell.Fields))
+		return s.removeItem(player, a.Field, s.amountForOrOne(a, player, cell))
 
 	case "equip_item":
 		return s.equipItem(player, a.Field)
@@ -635,7 +635,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 
 	case "if_has_item":
 		ensureInventory(player)
-		if player.Inventory[a.Field] >= resolveAmountOrOne(a, cell.Fields) {
+		if player.Inventory[a.Field] >= s.amountForOrOne(a, player, cell) {
 			return s.executeActions(a.Then, player, cell)
 		}
 		return s.executeActions(a.Else, player, cell)
@@ -644,7 +644,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		// Compares the effective value, so a check against strength counts the
 		// sword the player is holding. if_resource_ge deliberately still reads
 		// the raw stored value.
-		if s.EffectiveResource(player, a.Resource) >= resolveAmount(a, cell.Fields) {
+		if s.EffectiveResource(player, a.Resource) >= s.amountFor(a, player, cell) {
 			return s.executeActions(a.Then, player, cell)
 		}
 		return s.executeActions(a.Else, player, cell)
@@ -678,7 +678,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		return events
 
 	case "if_resource_ge":
-		amount := resolveAmount(a, cell.Fields)
+		amount := s.amountFor(a, player, cell)
 		if player.Resources[a.Resource] >= amount {
 			return s.executeActions(a.Then, player, cell)
 		}
@@ -696,6 +696,8 @@ func (s *GameSession) ResolvePendingAction(actionID string) ([]GameEvent, error)
 	}
 
 	switch s.State.PendingAction.Type {
+	case "trade_offer":
+		return s.resolveTrade(actionID)
 	case "free_move":
 		return s.resolveFreeMove(actionID)
 	case "route_choice":

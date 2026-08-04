@@ -30,6 +30,7 @@ services:
       ROLLBOARD_APP_ORIGIN: ${ROLLBOARD_APP_ORIGIN:?Set_ROLLBOARD_APP_ORIGIN}
       ROLLBOARD_COOKIE_SECURE: "true"
       ROLLBOARD_LOCALES_DIR: /app/locales
+      ROLLBOARD_UPLOADS_DIR: /app/uploads
     # The image already ships English and Russian at /app/locales. To add a
     # language or reword the interface, bind-mount a directory that contains a
     # COMPLETE set of catalogs — a mount replaces the built-in ones rather than
@@ -38,7 +39,9 @@ services:
     #   docker run --rm --entrypoint sh ghcr.io/mirivlad/rollboard:latest \
     #     -c 'tar -c -C /app/locales .' | tar -x -C /srv/rollboard/locales
     #
-    # volumes:
+    volumes:
+      # Uploaded images must outlive the container.
+      - rollboard_uploads:/app/uploads
     #   - /srv/rollboard/locales:/app/locales:ro
     ports:
       - target: 8080
@@ -53,3 +56,4 @@ services:
 
 volumes:
   rollboard_postgres_data:
+  rollboard_uploads:

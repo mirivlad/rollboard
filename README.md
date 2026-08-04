@@ -179,6 +179,7 @@ as a starting point.
 | `ROLLBOARD_SESSION_TTL` | `720h` | Session lifetime, as a Go duration. |
 | `ROLLBOARD_AUTH_RATE_LIMIT` | `10` | Credential attempts per minute, per source IP, per replica. |
 | `ROLLBOARD_LOCALES_DIR` | unset (`/app/locales` in the image) | Translation catalogs. |
+| `ROLLBOARD_UPLOADS_DIR` | unset (`/app/uploads` in the image) | Where author-uploaded images are stored. Leave unset to disable uploading. |
 | `ROLLBOARD_STATIC_DIR` | unset (`/app/frontend` in the image) | Built frontend to serve. Leave unset in development, where Vite serves it. |
 
 Invalid values fail at startup with a clear message rather than at first use.
@@ -238,6 +239,12 @@ code in the engine.
 `equip_item`, `unequip_slot`, `use_item`, `reveal_cells`, `move_player_to`,
 `skip_turns`, `finish_game`, `eliminate_player`, `log_message`.
 
+Every one of them is editable in the visual editor — the action list is
+generated from a schema, and a test fails the build if the engine gains an
+action the editor cannot reach. Amounts can be **computed** rather than fixed
+("this cell's damage, minus my defence, at least zero"), which is what makes
+armour worth wearing.
+
 Beyond a board and resources, a definition can also declare **items** with
 equipment slots and stat bonuses, **levels** with experience thresholds and
 spendable points, **hidden cells** that stay face down until explored, and
@@ -293,10 +300,10 @@ Stated plainly, so you can judge whether Rollboard fits before deploying it:
 - **No bots.** Every player must be a human.
 - **No undo.** The event journal records what happened but cannot roll it back.
 - **Actions cannot read other cells.** This rules out colour-group monopolies and rent that scales with how many squares of a kind you own.
-- **No trading or auctions.** A pending action is addressed to one player, so two-player negotiation cannot be expressed.
+- **No auctions.** Trading between two players works; an auction across all of them does not.
 - **Journal retention is unbounded.** Pruning policy is not implemented; busy deployments will want one.
 - **No load testing has been done.** Treat capacity claims as unproven.
-- **Images are URLs only.** There are no file uploads.
+- **Uploads are images only**, at most 2 MB, with the type sniffed from the bytes rather than trusted from the filename. SVG is refused because it can carry script.
 - **No OAuth**, and no author-supplied code of any kind.
 - **Mini-games are reserved but not runnable.** `launch_minigame` is a typed, versioned placeholder that publication deliberately rejects, so untrusted code cannot execute in the application process.
 

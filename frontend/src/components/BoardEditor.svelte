@@ -249,6 +249,7 @@
       cell={selectedCell}
       edges={game.board.edges}
       rules={game.rules}
+      allCells={game.board.cells}
       onCellChange={handleCellChange}
       onDeleteCell={deleteCell}
       onDeleteEdge={deleteEdge}

@@ -112,6 +112,39 @@ export const api = {
     });
   },
 
+  /** Multipart, so this one bypasses the JSON request helper. */
+  async uploadImage(file: File): Promise<{ url: string; contentType: string }> {
+    const csrf = document.cookie.split('; ').find((v) => v.startsWith('rollboard_csrf='))?.split('=')[1] ?? '';
+    const body = new FormData();
+    body.append('file', file);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/uploads`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf) } : {},
+        body,
+      });
+    } catch {
+      throw new ApiError('NETWORK', 'network request failed', '', 0);
+    }
+    if (!res.ok) {
+      const problem = await res.json().catch(() => ({}));
+      throw new ApiError(problem.code || 'INTERNAL_ERROR', problem.error || `HTTP ${res.status}`, problem.details || '', res.status);
+    }
+    return res.json();
+  },
+
+  proposeTrade(sessionId: string, offer: {
+    toPlayerId: string;
+    offerItems?: Record<string, number>;
+    offerResources?: Record<string, number>;
+    requestItems?: Record<string, number>;
+    requestResources?: Record<string, number>;
+  }): Promise<GameSession> {
+    return request(`/sessions/${sessionId}/trade`, { method: 'POST', body: JSON.stringify(offer) });
+  },
+
   manageInventory(sessionId: string, operation: 'equip' | 'unequip' | 'use', target: string): Promise<GameSession> {
     return request(`/sessions/${sessionId}/inventory`, {
       method: 'POST',

@@ -44,6 +44,7 @@ type API struct {
 	authLimiter  *rateLimiter
 	guestLimiter *rateLimiter
 	locales      LocaleOptions
+	uploads      UploadOptions
 }
 
 type CatalogService interface {
@@ -147,6 +148,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rooms", a.handleRooms)
 	mux.HandleFunc("/api/rooms/", a.handleRoomByID)
 	mux.HandleFunc("/api/sessions/", a.handleSessions)
+	mux.HandleFunc("/api/uploads", a.handleUploads)
+	mux.HandleFunc("/api/uploads/", a.handleUploadByName)
 }
 
 func (a *API) handleGuestEntry(w http.ResponseWriter, r *http.Request) {
@@ -1108,6 +1111,37 @@ func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessi
 		events, err := session.ManageInventory(current.ID, body.Operation, body.Target)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_ACTION", "inventory change is not allowed", err.Error())
+			return
+		}
+		session.State.Log = append(session.State.Log, events...)
+
+	case "trade":
+		var body struct {
+			ToPlayerID       string         `json:"toPlayerId"`
+			OfferItems       map[string]int `json:"offerItems"`
+			OfferResources   map[string]int `json:"offerResources"`
+			RequestItems     map[string]int `json:"requestItems"`
+			RequestResources map[string]int `json:"requestResources"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+			return
+		}
+		proposer := session.CurrentPlayer()
+		if proposer == nil {
+			writeError(w, http.StatusBadRequest, "INVALID_STATE", "no current player", "start the game first")
+			return
+		}
+		events, err := session.ProposeTrade(game.TradeOffer{
+			FromPlayerID:     proposer.ID,
+			ToPlayerID:       body.ToPlayerID,
+			OfferItems:       body.OfferItems,
+			OfferResources:   body.OfferResources,
+			RequestItems:     body.RequestItems,
+			RequestResources: body.RequestResources,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_ACTION", "trade cannot be proposed", err.Error())
 			return
 		}
 		session.State.Log = append(session.State.Log, events...)

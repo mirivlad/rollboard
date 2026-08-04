@@ -127,19 +127,49 @@ type FieldDef struct {
 }
 
 type ActionDefinition struct {
-	Type        string             `json:"type"`
-	Resource    string             `json:"resource,omitempty"`
-	Amount      *int               `json:"amount,omitempty"`
-	AmountField string             `json:"amountField,omitempty"`
-	Target      string             `json:"target,omitempty"`
-	To          string             `json:"to,omitempty"`
-	Field       string             `json:"field,omitempty"`
-	Title       string             `json:"title,omitempty"`
-	ActionID    string             `json:"actionId,omitempty"`
-	MiniGame    *MiniGameReference `json:"miniGame,omitempty"`
-	Then        []ActionDefinition `json:"then,omitempty"`
-	Else        []ActionDefinition `json:"else,omitempty"`
-	Options     []ActionOption     `json:"options,omitempty"`
+	Type        string `json:"type"`
+	Resource    string `json:"resource,omitempty"`
+	Amount      *int   `json:"amount,omitempty"`
+	AmountField string `json:"amountField,omitempty"`
+	// Formula computes the amount instead of taking it literally. Actions
+	// could previously only compare values, never combine them, so armour
+	// could raise a defence stat that nothing was able to subtract.
+	Formula  *AmountFormula     `json:"formula,omitempty"`
+	Target   string             `json:"target,omitempty"`
+	To       string             `json:"to,omitempty"`
+	Field    string             `json:"field,omitempty"`
+	Title    string             `json:"title,omitempty"`
+	ActionID string             `json:"actionId,omitempty"`
+	MiniGame *MiniGameReference `json:"miniGame,omitempty"`
+	Then     []ActionDefinition `json:"then,omitempty"`
+	Else     []ActionDefinition `json:"else,omitempty"`
+	Options  []ActionOption     `json:"options,omitempty"`
+}
+
+// AmountFormula is deliberately a fixed shape rather than a general
+// expression tree: base, one adjustment, an optional scale and clamps. That
+// covers "damage minus defence, at least zero" and stays a handful of
+// dropdowns in the editor, which is the point — authors do not write code.
+type AmountFormula struct {
+	Base      *AmountTerm `json:"base,omitempty"`
+	Plus      *AmountTerm `json:"plus,omitempty"`
+	Minus     *AmountTerm `json:"minus,omitempty"`
+	Times     *int        `json:"times,omitempty"`
+	DividedBy *int        `json:"dividedBy,omitempty"`
+	Min       *int        `json:"min,omitempty"`
+	Max       *int        `json:"max,omitempty"`
+}
+
+// AmountTerm is one value in a formula.
+//
+//	const    a literal
+//	field    a field on the cell being resolved
+//	stat     the acting player's effective value, equipment included
+//	resource the acting player's stored value, equipment excluded
+type AmountTerm struct {
+	Kind  string `json:"kind"`
+	Name  string `json:"name,omitempty"`
+	Value int    `json:"value,omitempty"`
 }
 
 type ActionOption struct {

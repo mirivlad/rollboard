@@ -36,10 +36,13 @@ services:
       ROLLBOARD_APP_ORIGIN: http://localhost:8080
       ROLLBOARD_COOKIE_SECURE: "false"
       ROLLBOARD_LOCALES_DIR: /app/locales
+      ROLLBOARD_UPLOADS_DIR: /app/uploads
     volumes:
       # Bind-mounting the catalogs means editing a JSON file and restarting the
       # container is enough to change or add a translation.
       - ./locales:/app/locales:ro
+      # Uploaded images must outlive the container.
+      - rollboard_uploads:/app/uploads
     ports:
       - "8080:8080"
     depends_on:
@@ -50,3 +53,4 @@ services:
 
 volumes:
   postgres_data:
+  rollboard_uploads:

@@ -41,5 +41,6 @@ USER 10001:10001
 EXPOSE 8080
 ENV ROLLBOARD_ADDR=0.0.0.0:8080 \
     ROLLBOARD_STATIC_DIR=/app/frontend \
-    ROLLBOARD_LOCALES_DIR=/app/locales
+    ROLLBOARD_LOCALES_DIR=/app/locales \
+    ROLLBOARD_UPLOADS_DIR=/app/uploads
 ENTRYPOINT ["/app/rollboard"]

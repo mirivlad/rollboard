@@ -31,6 +31,7 @@ type GameState struct {
 	Log                []GameEvent          `json:"log"`
 	PendingAction      *PendingAction       `json:"pendingAction,omitempty"`
 	PendingMovement    *PendingMovement     `json:"pendingMovement,omitempty"`
+	PendingTrade       *TradeOffer          `json:"pendingTrade,omitempty"`
 }
 
 type PlayerState struct {

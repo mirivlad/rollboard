@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { CellDefinition, EdgeDefinition, RuleSet, ActionDefinition, ActionOption } from '../lib/types';
   import { i18n } from '../lib/i18n.svelte';
+  import ActionEditor from './ActionEditor.svelte';
+  import ImageField from './ImageField.svelte';
 
-  let { cell, edges, rules, onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect, onEdgeChange }: {
+  let { cell, edges, rules, allCells = [], onCellChange, onDeleteCell, onDeleteEdge, selectedEdgeId, onEdgeSelect, onEdgeChange }: {
     cell: CellDefinition | null | undefined;
     edges: EdgeDefinition[];
+    allCells?: CellDefinition[];
     rules: RuleSet;
     onCellChange?: (cell: CellDefinition) => void;
     onDeleteCell?: (id: string) => void;
@@ -197,10 +200,10 @@
       {t('inspector.color')}
       <input type="color" value={cell.visual.baseColor} oninput={(e) => updateVisual('baseColor', (e.target as HTMLInputElement).value)} />
     </label>
-    <label>
-      {t('inspector.imageUrl')}
-      <input value={cell.visual.baseImage} oninput={(e) => updateVisual('baseImage', (e.target as HTMLInputElement).value)} placeholder={t('inspector.imageUrlPlaceholder')} />
-    </label>
+    <ImageField
+      value={cell.visual.baseImage}
+      onChange={(url) => updateVisual('baseImage', url)}
+    />
 
     {#if typeDef && Object.keys(typeDef.fields).length > 0}
       <hr />
@@ -239,190 +242,29 @@
       {/each}
     {/if}
 
-    <!-- Actions Editor -->
+    <!-- Actions -->
     {#if cell}
       <hr />
       <h4>{t('inspector.actions')}</h4>
 
-      <!-- On Land -->
       <div class="action-list-section">
-        <div class="action-list-header">
-          <span class="action-list-title">{t('inspector.onLand')}</span>
-          <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onLand', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
-            <option value="">{t('inspector.add')}</option>
-            {#each ACTION_TYPES as at}
-              <option value={at}>{t(`action.${at}`)}</option>
-            {/each}
-          </select>
-        </div>
-        {#each getActions('onLand') as action, i}
-          <div class="action-item">
-            <div class="action-header">
-              <select class="action-type" value={action.type} onchange={(e) => setActionField('onLand', i, 'type', (e.target as HTMLSelectElement).value)}>
-                {#each ACTION_TYPES as at}
-                  <option value={at}>{t(`action.${at}`)}</option>
-                {/each}
-              </select>
-              <div class="action-controls">
-                <button class="small" aria-label={t('inspector.moveUp')} onclick={() => moveAction('onLand', i, -1)} disabled={i === 0}>↑</button>
-                <button class="small" aria-label={t('inspector.moveDown')} onclick={() => moveAction('onLand', i, 1)} disabled={i === getActions('onLand').length - 1}>↓</button>
-                <button class="small danger" aria-label={t('inspector.removeAction')} onclick={() => removeAction('onLand', i)}>✕</button>
-              </div>
-            </div>
-            <!-- Action fields -->
-            <div class="action-fields">
-              {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-              {:else if action.type === 'transfer_resource'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-                <label>{t('inspector.target')}
-                  <select value={action.target || 'owner'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
-                    {#each TARGET_OPTIONS as to}
-                      <option value={to}>{t(`target.${to}`)}</option>
-                    {/each}
-                  </select>
-                </label>
-              {:else if action.type === 'set_cell_owner'}
-                <label>{t('inspector.owner')}
-                  <select value={action.target || 'current'} onchange={(e) => setActionField('onLand', i, 'target', (e.target as HTMLSelectElement).value)}>
-                    {#each TARGET_OPTIONS as to}
-                      <option value={to}>{t(`target.${to}`)}</option>
-                    {/each}
-                  </select>
-                </label>
-              {:else if action.type === 'if_resource_ge'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onLand', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onLand', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-                <p class="hint">{t('inspector.nestedHint')}</p>
-              {:else if action.type === 'finish_game'}
-                <p class="hint">{t('inspector.finishHint')}</p>
-              {:else if action.type === 'log_message'}
-                <label>{t('inspector.message')}
-                  <input value={action.title || ''} oninput={(e) => setActionField('onLand', i, 'title', (e.target as HTMLInputElement).value)} placeholder={t('inspector.logPlaceholder')} />
-                </label>
-              {/if}
-            </div>
-          </div>
-        {/each}
-        {#if getActions('onLand').length === 0}
-          <p class="hint">{t('inspector.noOnLand')}</p>
-        {/if}
+        <span class="action-list-title">{t('inspector.onLand')}</span>
+        <ActionEditor
+          actions={cell.onLand ?? []}
+          {rules}
+          cells={allCells}
+          onChange={(next) => onCellChange?.({ ...cell, onLand: next })}
+        />
       </div>
 
-      <!-- On Pass -->
       <div class="action-list-section">
-        <div class="action-list-header">
-          <span class="action-list-title">{t('inspector.onPass')}</span>
-          <select class="action-type-select" onchange={(e) => { if ((e.target as HTMLSelectElement).value) { addAction('onPass', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; } }}>
-            <option value="">{t('inspector.add')}</option>
-            {#each ACTION_TYPES as at}
-              <option value={at}>{t(`action.${at}`)}</option>
-            {/each}
-          </select>
-        </div>
-        {#each getActions('onPass') as action, i}
-          <div class="action-item">
-            <div class="action-header">
-              <select class="action-type" value={action.type} onchange={(e) => setActionField('onPass', i, 'type', (e.target as HTMLSelectElement).value)}>
-                {#each ACTION_TYPES as at}
-                  <option value={at}>{t(`action.${at}`)}</option>
-                {/each}
-              </select>
-              <div class="action-controls">
-                <button class="small" aria-label={t('inspector.moveUp')} onclick={() => moveAction('onPass', i, -1)} disabled={i === 0}>↑</button>
-                <button class="small" aria-label={t('inspector.moveDown')} onclick={() => moveAction('onPass', i, 1)} disabled={i === getActions('onPass').length - 1}>↓</button>
-                <button class="small danger" aria-label={t('inspector.removeAction')} onclick={() => removeAction('onPass', i)}>✕</button>
-              </div>
-            </div>
-            <div class="action-fields">
-              {#if action.type === 'gain_resource' || action.type === 'lose_resource'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-              {:else if action.type === 'transfer_resource'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-                <label>{t('inspector.target')}
-                  <select value={action.target || 'owner'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
-                    {#each TARGET_OPTIONS as to}
-                      <option value={to}>{t(`target.${to}`)}</option>
-                    {/each}
-                  </select>
-                </label>
-              {:else if action.type === 'set_cell_owner'}
-                <label>{t('inspector.owner')}
-                  <select value={action.target || 'current'} onchange={(e) => setActionField('onPass', i, 'target', (e.target as HTMLSelectElement).value)}>
-                    {#each TARGET_OPTIONS as to}
-                      <option value={to}>{t(`target.${to}`)}</option>
-                    {/each}
-                  </select>
-                </label>
-              {:else if action.type === 'if_resource_ge'}
-                <label>{t('inspector.resource')}
-                  <select value={action.resource || ''} onchange={(e) => setActionField('onPass', i, 'resource', (e.target as HTMLSelectElement).value)}>
-                    {#each resourceList() as res}
-                      <option value={res}>{res}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label>{t('inspector.amount')}
-                  <input type="number" value={action.amount || 1} oninput={(e) => setActionField('onPass', i, 'amount', parseInt((e.target as HTMLInputElement).value) || 0)} min="1" />
-                </label>
-                <p class="hint">{t('inspector.nestedHint')}</p>
-              {:else if action.type === 'finish_game'}
-                <p class="hint">{t('inspector.finishHint')}</p>
-              {:else if action.type === 'log_message'}
-                <label>{t('inspector.message')}
-                  <input value={action.title || ''} oninput={(e) => setActionField('onPass', i, 'title', (e.target as HTMLInputElement).value)} placeholder={t('inspector.logPlaceholder')} />
-                </label>
-              {/if}
-            </div>
-          </div>
-        {/each}
-        {#if getActions('onPass').length === 0}
-          <p class="hint">{t('inspector.noOnPass')}</p>
-        {/if}
+        <span class="action-list-title">{t('inspector.onPass')}</span>
+        <ActionEditor
+          actions={cell.onPass ?? []}
+          {rules}
+          cells={allCells}
+          onChange={(next) => onCellChange?.({ ...cell, onPass: next })}
+        />
       </div>
     {/if}
 
@@ -604,89 +446,10 @@
   .action-list-section {
     margin-bottom: 12px;
   }
-  .action-list-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-  }
   .action-list-title {
     font-weight: bold;
     color: var(--accent);
     font-size: 12px;
     text-transform: uppercase;
-  }
-  .action-type-select {
-    font-size: 11px;
-    padding: 2px 4px;
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 3px;
-    width: auto;
-  }
-  .action-item {
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    margin-bottom: 6px;
-    padding: 6px;
-  }
-  .action-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 4px;
-  }
-  .action-type {
-    flex: 1;
-    font-size: 11px;
-    padding: 2px 4px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 3px;
-  }
-  .action-controls {
-    display: flex;
-    gap: 2px;
-  }
-  .action-controls .small {
-    padding: 1px 4px;
-    font-size: 10px;
-  }
-  .action-controls .small:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-  .small.danger {
-    color: var(--danger);
-    border-color: var(--danger);
-  }
-  .action-fields {
-    margin-top: 6px;
-  }
-  .action-fields label {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 10px;
-    color: var(--text-faint);
-  }
-  .action-fields input, .action-fields select {
-    display: block;
-    width: 100%;
-    margin-top: 2px;
-    padding: 3px 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 3px;
-    box-sizing: border-box;
-    font-size: 11px;
-  }
-  .action-fields .hint {
-    font-size: 10px;
-    color: var(--text-faint);
-    margin: 4px 0 0;
   }
 </style>

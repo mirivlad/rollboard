@@ -77,7 +77,8 @@ func main() {
 			WebSocketOriginPatterns: []string{appOrigin.Host},
 			RateLimit:               cfg.AuthRateLimit,
 		}).
-		WithLocales(httpapi.LocaleOptions{Dir: cfg.LocalesDir})
+		WithLocales(httpapi.LocaleOptions{Dir: cfg.LocalesDir}).
+		WithUploads(httpapi.UploadOptions{Dir: cfg.UploadsDir})
 	api.RegisterRoutes(mux)
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))

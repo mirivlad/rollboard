@@ -10,7 +10,14 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.svelte"
+  ]
 }

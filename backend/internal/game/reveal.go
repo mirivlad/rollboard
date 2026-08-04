@@ -52,7 +52,7 @@ func (s *GameSession) revealCells(player *PlayerState, a ActionDefinition, cell 
 			fmt.Sprintf("%s scouted %s", player.Name, to), nil)}
 	}
 
-	radius := resolveAmountOrOne(a, cell.Fields)
+	radius := s.amountForOrOne(a, player, cell)
 	edges := s.Definition.Board.buildEdgeMap()
 
 	// Breadth-first so "within N steps" means exactly that.
