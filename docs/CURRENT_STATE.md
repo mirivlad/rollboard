@@ -1,3 +1,5 @@
+**English** · [Русский](ru/CURRENT_STATE.md)
+
 # Rollboard — current state
 
 Last updated: 2026-08-04
@@ -76,6 +78,58 @@ through the live API and playing it to a finish:
   doublings, per-square street repairs driven by `for_each_cell`, two
   eliminations and a winner, with no unknown or invalid actions and no
   execution-depth stops.
+
+## Code review of 2026-08-04
+
+An external review raised eleven findings. Every one was checked against the
+running code before anything was changed, and every one was real. What the
+checks showed, and what changed:
+
+- **Negative computed amounts ran their action backwards.** `gain_resource` with
+  a formula resolving to -10 took the money away and logged it as a gain; rent
+  with a negative amount paid the tenant. Amounts are quantities now, refused
+  and logged when negative.
+- **`ResourceRule.Min` and `.Max` were dead fields.** A resource capped at 600
+  reached 1500. They hold on every path now, including trades, auctions, tolls
+  and the start bonus.
+- **Payments to unresolvable targets did nothing, silently.** `transfer_resource`
+  to "bank" or "current" looked for a player of that name and returned without
+  an event. `set_cell_owner` stored "bank" verbatim, giving a square to a player
+  who does not exist. Each action now has only the vocabulary it can honour.
+- **Formulas were not validated at all.** Eight deliberately broken formulas all
+  published cleanly. Validation is recursive now and names the path to the
+  offending action.
+- **The editor and the engine agreed only on action names.** Five actions
+  resolved a computed amount the editor never offered, and `skip_turns` offered
+  one the validator rejected. The parity test now derives the supported fields
+  from the engine source; verified by removing a field and watching it fail.
+- **Duplicate option IDs were publishable.** Add three options, delete the
+  second, add another: two options called `option_3`, and only the first could
+  ever be chosen. IDs fill the first free slot and duplicates are refused.
+- **Uploads could not work at all in the packaged container.** Reproduced with a
+  clean `docker compose down -v && up --build`: the named volume came up owned
+  by root, the server runs as 10001, every upload answered 500. Fixed and
+  re-verified the same way.
+- **Uploads were unbounded.** Any signed-in account could upload unlimited
+  unique images with nothing recording who owned what. There is now a row per
+  image and owner, a per-account quota, a deployment ceiling, an upload rate
+  limit, a delete endpoint and a startup sweep of files nothing claims.
+- **Behind a proxy the rate limiter counted all visitors as one person.**
+  Forwarded headers are believed only from configured trusted proxies, and the
+  chain is walked from the right so a forged hop changes nothing.
+- **No timeouts and no graceful shutdown.** SIGTERM took the process out in
+  0.37s, cutting whatever was in flight. An explicit `http.Server` with timeouts
+  and an ordered shutdown replaced it, covered by
+  `scripts/shutdown-smoke.sh`.
+- **Inventory and trading existed only in hotseat.** The room protocol carried
+  start, roll, action and chat, so an online player handed an item could never
+  put it on. Two room commands and both panels were added, covered end to end
+  against a real database.
+
+`scripts/validate-demos.sh`, which carried its own transcription of two
+templates, was replaced by `scripts/validate-templates.sh`: it validates all
+seven real editor templates through the real validator, and now runs in CI,
+which never checked any of this before.
 
 ## Known limitations
 

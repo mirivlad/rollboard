@@ -1,3 +1,5 @@
+**English** · [Русский](ru/ARCHITECTURE.md)
+
 # Rollboard Architecture
 
 ## Overview
@@ -50,6 +52,8 @@ The engine is **generic** — no game-specific code.
    - `move_player_to`, `skip_turns`, `reveal_cells`
    - `grant_item`, `remove_item`, `equip_item`, `unequip_slot`, `use_item`
    - `if_has_item`, `if_stat_ge`
+   - `if_cells_ge`, `for_each_cell` (questions about the rest of the board)
+   - `start_auction` (bidding round the table)
    - `finish_game`, `eliminate_player`, `log_message`
 
 4. **Items** are the definition's catalogue of things a player carries. A
@@ -66,8 +70,14 @@ The engine is **generic** — no game-specific code.
    None of these know about any particular game. `set_cell_level` is houses in a
    property game and fortification in a war game; `skip_turns` is a jail
    sentence and a stun effect.
-4. **Server is authoritative** — dice are rolled server-side, movement is computed server-side.
-5. Frontend only sends intentions ("I want to roll"), never results.
+6. **Resources move through one guarded path.** Amounts are quantities, never
+   directions: a computed amount that comes out negative is refused and logged
+   rather than running its action backwards. `ResourceRule.Min` and `.Max` hold
+   on every path — actions, trades, auctions, tolls and the start bonus — and a
+   transfer moves exactly what the recipient can receive, so paying into a full
+   pocket cannot destroy the difference.
+7. **Server is authoritative** — dice are rolled server-side, movement is computed server-side.
+8. Frontend only sends intentions ("I want to roll"), never results.
 
 ### Session Flow
 
@@ -183,8 +193,9 @@ bounded at 32 levels. A definition that loops back on itself stops with an
 ## Implementation boundaries
 
 Redis is used only for cross-process fan-out. PostgreSQL is the authority for
-room state, event journal and command receipts. Presence and rate limiting are
-not implemented yet.
+room state, event journal and command receipts. Rate limiting is per process and
+keyed by client address, with forwarded headers believed only from configured
+trusted proxies. Presence is not implemented yet.
 
 ### Mini-game extension boundary
 

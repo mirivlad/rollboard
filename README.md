@@ -1,3 +1,5 @@
+**English** · [Русский](README.ru.md)
+
 # Rollboard
 
 **A self-hostable platform for building and playing turn-based board games in the browser.**
@@ -356,6 +358,17 @@ Stated plainly, so you can judge whether Rollboard fits before deploying it:
 
 The current state, including exactly what has been verified and how, is tracked
 in [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md).
+
+## Documentation
+
+| Document | Русский |
+|----------|---------|
+| [Authoring guide](docs/AUTHORING.md) — building games from dropdowns | [есть](docs/ru/AUTHORING.md) |
+| [Architecture](docs/ARCHITECTURE.md) — engine model, session flow, boundaries | [есть](docs/ru/ARCHITECTURE.md) |
+| [Translating](docs/I18N.md) — adding a language without rebuilding | [есть](docs/ru/I18N.md) |
+| [Current state](docs/CURRENT_STATE.md) — what is verified, and how | [есть](docs/ru/CURRENT_STATE.md) |
+| [Roadmap](docs/ROADMAP.md) | [есть](docs/ru/ROADMAP.md) |
+| [Manual playtest](docs/manual-playtest.md), [checklist](docs/PLAYTEST_CHECKLIST.md) — release procedures | English only |
 
 ## Troubleshooting
 

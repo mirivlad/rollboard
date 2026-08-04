@@ -1,3 +1,5 @@
+**English** · [Русский](ru/AUTHORING.md)
+
 # Authoring games
 
 Everything on this page is built from dropdowns in the board editor. There is

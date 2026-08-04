@@ -1,3 +1,5 @@
+**English** · [Русский](ru/ROADMAP.md)
+
 # Rollboard roadmap
 
 ## Product direction
@@ -24,6 +26,8 @@ The approved platform design is in
     queries that let a rule read the rest of the board.
 11. A visual action editor generated from a schema, covering every action the
     engine can execute.
+12. Inventory and trading in online rooms, upload quotas, trusted proxies,
+    HTTP timeouts and graceful shutdown.
 
 ## Next
 
