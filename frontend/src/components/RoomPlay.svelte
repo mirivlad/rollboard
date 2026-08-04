@@ -8,6 +8,8 @@
   import { optionLabel, pendingHeading } from '../lib/option-label';
   import { acceptsRoomSequence } from '../lib/room-sequence';
   import BoardView from './BoardView.svelte';
+  import InventoryPanel from './InventoryPanel.svelte';
+  import TradePanel from './TradePanel.svelte';
   import InviteLink from './InviteLink.svelte';
 
   type Actor = { kind: 'user' | 'guest'; id: string };
@@ -58,6 +60,28 @@
   let canResolveAction = $derived(Boolean(
     pendingAction && ownMember?.playerId === pendingAction.playerId
   ));
+  /** The seat this member is playing, so their own pack can be shown. */
+  let ownPlayer = $derived(currentRoom.session?.state.players.find((player) => player.id === ownMember?.playerId));
+  // Read defensively: a snapshot can arrive before the definition does, and a
+  // room view that throws is worse than one without a pack panel.
+  let hasInventory = $derived(Object.keys(currentRoom.session?.definition?.rules?.items ?? {}).length > 0);
+  /** Equipping and trading are turn-bound, exactly as in a hotseat playtest. */
+  let canManageInventory = $derived(Boolean(
+    currentRoom.session?.state.status === 'active' &&
+    ownMember?.playerId &&
+    ownMember.playerId === currentPlayer?.id &&
+    !pendingAction && !rolling && playbackStep === null
+  ));
+
+  function sendInventory(command: string) {
+    const [operation, target] = command.split(/:(.*)/s);
+    if (operation !== 'equip' && operation !== 'unequip' && operation !== 'use') return;
+    send(roomCommand('inventory', { operation, target }));
+  }
+
+  function sendTrade(offer: Record<string, unknown>) {
+    send(roomCommand('trade', { offer }));
+  }
   function clearPlaybackTimer() {
     if (playbackTimer) clearTimeout(playbackTimer);
     playbackTimer = undefined;
@@ -135,7 +159,7 @@
   <div class="top"><div><p class="eyebrow">{connected ? t('room.live') : t('room.reconnecting')}</p><h1>{currentRoom.title}</h1><p>{t('room.occupancy', { count: currentRoom.members.length, max: currentRoom.maxPlayers, status: t(`room.status.${currentRoom.status}`) })}</p></div>{#if currentRoom.status === 'lobby' && canStart}<button onclick={() => send(roomCommand('start'))}>{t('room.startGame')}</button>{/if}</div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <div class="layout">
-    <div class="game"><h2>{currentRoom.session ? t('room.turn', { number: currentRoom.session.state.turnNumber }) : t('room.waitingLobby')}</h2>{#if currentRoom.session}<p>{t('room.currentPlayer', { name: currentPlayer?.name ?? '' })}</p>{#if rolling}<p class="dice-result" aria-live="polite">{t('room.rolling')}</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">{t('room.rolled', { rolls: lastRoll.rolls.join(' + '), total: lastRoll.total })}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{currentRoom.session ? pendingHeading(currentRoom.session, t, 'room.chooseAction') : t('room.chooseAction')}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send(roomCommand('action', { actionId: option.id }))}>{optionLabel(option, t, { resource: currentRoom.session?.state.pendingAuction?.resource })}</button>{/each}{:else}<p>{t('room.waitingChoice')}</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>{t('room.roll')}</button>{:else}<p>{t('room.waitingRoll')}</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{/if}</div>
+    <div class="game"><h2>{currentRoom.session ? t('room.turn', { number: currentRoom.session.state.turnNumber }) : t('room.waitingLobby')}</h2>{#if currentRoom.session}<p>{t('room.currentPlayer', { name: currentPlayer?.name ?? '' })}</p>{#if rolling}<p class="dice-result" aria-live="polite">{t('room.rolling')}</p>{:else if lastRoll}<p class="dice-result" aria-live="polite">{t('room.rolled', { rolls: lastRoll.rolls.join(' + '), total: lastRoll.total })}</p>{/if}{#if pendingAction}<section class="pending-action"><h3>{currentRoom.session ? pendingHeading(currentRoom.session, t, 'room.chooseAction') : t('room.chooseAction')}</h3>{#if canResolveAction}{#each pendingAction.options ?? [] as option (option.id)}<button onclick={() => send(roomCommand('action', { actionId: option.id }))}>{optionLabel(option, t, { resource: currentRoom.session?.state.pendingAuction?.resource })}</button>{/each}{:else}<p>{t('room.waitingChoice')}</p>{/if}</section>{:else if canRoll}<button onclick={rollDice}>{t('room.roll')}</button>{:else}<p>{t('room.waitingRoll')}</p>{/if}{#if displaySession}<BoardView board={displaySession.definition.board} players={displaySession.state.players} cellStates={displaySession.state.cellStates} />{/if}{#if currentRoom.session && ownPlayer}{#if hasInventory}<section class="player-panel"><InventoryPanel session={currentRoom.session} player={ownPlayer} canAct={canManageInventory} onAction={sendInventory} /></section>{/if}{#if canManageInventory}<section class="player-panel"><TradePanel session={currentRoom.session} player={ownPlayer} onPropose={sendTrade} /></section>{/if}{/if}{/if}</div>
     <aside>{#if canModerate && currentRoom.status === 'lobby'}<InviteLink roomId={currentRoom.id} />{/if}<section class="roster"><h2>{t('room.players')}</h2>{#each currentRoom.members as member (member.id)}<div class="member"><span>{member.displayName}{member.mutedAt ? ` · ${t('room.muted')}` : ''}</span>{#if canModerate && member.id !== currentRoom.hostMemberId}<div class="member-actions"><button aria-label={member.mutedAt ? t('room.unmuteMember', { name: member.displayName }) : t('room.muteMember', { name: member.displayName })} onclick={() => muteMember(member.id, !member.mutedAt)}>{member.mutedAt ? t('room.unmute') : t('room.mute')}</button><button aria-label={t('room.removeMember', { name: member.displayName })} onclick={() => removeMember(member.id)}>{t('room.remove')}</button></div>{/if}</div>{/each}</section><section class="chat"><h2>{t('room.chat')}</h2><div class="messages">{#each messages as item (item.id)}<p><strong>{item.displayName}</strong><span>{item.body}</span></p>{/each}</div><form onsubmit={(event) => { event.preventDefault(); submitMessage(); }}><label>{t('room.message')}<input bind:value={message} maxlength="1000" placeholder={t('room.messagePlaceholder')} /></label><button disabled={!message.trim()}>{t('room.send')}</button></form></section></aside>
   </div>
 </section>
@@ -175,6 +199,14 @@
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: var(--space-4);
     align-items: start;
+  }
+
+  /* The player's own pack and trade form sit under the board, so the board
+     keeps the width it had. */
+  .player-panel {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .game,

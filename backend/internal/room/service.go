@@ -504,6 +504,115 @@ func (s *Service) ResolveActionWithCommand(ctx context.Context, actor identity.A
 	return transition, nil
 }
 
+// applyPlayerCommand runs one player-initiated change to the session.
+//
+// Roll and action predate this and each carry their own copy of the sequence:
+// lock the room, find the member, honour a repeated command ID, check the game
+// is live, change the session, persist, journal, publish. Inventory and trading
+// arrived later and share it rather than adding two more copies.
+//
+// The member's own player ID is what reaches the engine, never one from the
+// payload, so a player cannot equip somebody else's sword by editing a
+// WebSocket frame.
+func (s *Service) applyPlayerCommand(
+	ctx context.Context,
+	actor identity.Actor,
+	roomID string,
+	command Command,
+	commandType string,
+	change func(session *game.GameSession, playerID string) ([]game.GameEvent, error),
+) (Transition, error) {
+	if err := validateCommand(command, commandType); err != nil {
+		return Transition{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Transition{}, fmt.Errorf("begin room %s: %w", commandType, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	stored, err := loadRoom(ctx, tx, roomID, true)
+	if err != nil {
+		return Transition{}, err
+	}
+	member, err := currentMember(actor, stored.Members)
+	if err != nil {
+		return Transition{}, err
+	}
+	if command.ID != "" {
+		receipt, err := commandReceipt(ctx, tx, stored.ID, actorReference(actor), command)
+		if err != nil {
+			return Transition{}, err
+		}
+		if receipt != nil {
+			var transition Transition
+			if err := json.Unmarshal(receipt.Payload, &transition); err != nil {
+				return Transition{}, fmt.Errorf("decode room command receipt: %w", err)
+			}
+			transition.StoredEvent = receipt
+			transition.Duplicate = true
+			return transition, nil
+		}
+	}
+	if stored.Status != StatusActive || stored.Session == nil || stored.Session.State.Status != "active" {
+		return Transition{}, ErrGameNotActive
+	}
+	if member.PlayerID == "" {
+		// A spectator or a member without a seat has nothing to act with.
+		return Transition{}, ErrNotYourTurn
+	}
+
+	events, err := change(stored.Session, member.PlayerID)
+	if err != nil {
+		return Transition{}, err
+	}
+	stored.Session.State.Log = append(stored.Session.State.Log, events...)
+	if stored.Session.State.Status == "finished" {
+		stored.Status = StatusFinished
+	}
+	if err := persistSession(ctx, tx, stored); err != nil {
+		return Transition{}, err
+	}
+	transition := Transition{RoomID: stored.ID, Sequence: stored.Sequence, Session: stored.Session, Events: events}
+	event, err := recordEvent(ctx, tx, stored.ID, stored.Sequence, "room_event", transition)
+	if err != nil {
+		return Transition{}, err
+	}
+	if command.ID != "" {
+		if err := recordCommandReceipt(ctx, tx, stored.ID, actorReference(actor), command, event); err != nil {
+			return Transition{}, err
+		}
+	}
+	transition.StoredEvent = &event
+	if err := tx.Commit(ctx); err != nil {
+		return Transition{}, fmt.Errorf("commit room %s: %w", commandType, err)
+	}
+	return transition, nil
+}
+
+// ManageInventoryWithCommand equips, unequips or uses an item for the caller.
+//
+// Inventory and trading existed only in the author's own hotseat playtest: the
+// room protocol carried start, roll, action and chat and nothing else, so an
+// online player could be handed a sword by a cell and never put it on.
+func (s *Service) ManageInventoryWithCommand(ctx context.Context, actor identity.Actor, roomID, operation, target string, command Command) (Transition, error) {
+	return s.applyPlayerCommand(ctx, actor, roomID, command, "inventory",
+		func(session *game.GameSession, playerID string) ([]game.GameEvent, error) {
+			return session.ManageInventory(playerID, operation, target)
+		})
+}
+
+// ProposeTradeWithCommand puts one member's offer in front of another.
+func (s *Service) ProposeTradeWithCommand(ctx context.Context, actor identity.Actor, roomID string, offer game.TradeOffer, command Command) (Transition, error) {
+	return s.applyPlayerCommand(ctx, actor, roomID, command, "trade",
+		func(session *game.GameSession, playerID string) ([]game.GameEvent, error) {
+			// The proposer is whoever sent the command, whatever the payload
+			// claims, so nobody can offer away another player's goods.
+			offer.FromPlayerID = playerID
+			return session.ProposeTrade(offer)
+		})
+}
+
 func (s *Service) SendMessage(ctx context.Context, actor identity.Actor, roomID, body string) (RoomMessage, error) {
 	return s.SendMessageWithCommand(ctx, actor, roomID, body, Command{})
 }

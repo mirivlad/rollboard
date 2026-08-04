@@ -403,6 +403,8 @@ type fakeRoomService struct {
 	chat             room.RoomMessage
 	replayEvents     []room.StoredEvent
 	replayContiguous bool
+	lastInventory    [3]string
+	lastTrade        *game.TradeOffer
 }
 
 type memoryBackplane struct {
@@ -482,10 +484,81 @@ func (f *fakeRoomService) ResolveActionWithCommand(ctx context.Context, actor id
 	return f.ResolveAction(ctx, actor, roomID, actionID)
 }
 
+// The inventory and trade commands record what the hub passed down, so a test
+// can check that the sender's own seat is used rather than anything from the
+// payload.
+func (f *fakeRoomService) ManageInventoryWithCommand(_ context.Context, _ identity.Actor, roomID, operation, target string, _ room.Command) (room.Transition, error) {
+	f.lastInventory = [3]string{roomID, operation, target}
+	return f.transition, nil
+}
+
+func (f *fakeRoomService) ProposeTradeWithCommand(_ context.Context, _ identity.Actor, roomID string, offer game.TradeOffer, _ room.Command) (room.Transition, error) {
+	f.lastTrade = &offer
+	return f.transition, nil
+}
+
 func (f *fakeRoomService) SendMessage(context.Context, identity.Actor, string, string) (room.RoomMessage, error) {
 	return f.chat, nil
 }
 
 func (f *fakeRoomService) SendMessageWithCommand(ctx context.Context, actor identity.Actor, roomID, body string, _ room.Command) (room.RoomMessage, error) {
 	return f.SendMessage(ctx, actor, roomID, body)
+}
+
+func TestHubCarriesInventoryAndTradeIntents(t *testing.T) {
+	// Online players could be handed an item by a cell and never put it on:
+	// the protocol carried start, roll, action and chat and nothing else.
+	service := &fakeRoomService{
+		room:       &room.Room{ID: "room-1", Members: []room.RoomMember{{ActorKind: "user", ActorID: "user-1", PlayerID: "player_1"}}},
+		transition: room.Transition{RoomID: "room-1", Sequence: 4},
+	}
+	hub, err := NewHub(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	actor := identity.Actor{User: &identity.User{ID: "user-1"}}
+
+	if _, err := hub.Submit(context.Background(), "room-1", actor, Intent{
+		Type: IntentInventory, CommandID: "11111111-1111-1111-1111-111111111111",
+		Operation: "equip", Target: "rusty_sword",
+	}); err != nil {
+		t.Fatalf("inventory intent: %v", err)
+	}
+	if service.lastInventory != [3]string{"room-1", "equip", "rusty_sword"} {
+		t.Fatalf("inventory reached the service as %v", service.lastInventory)
+	}
+
+	if _, err := hub.Submit(context.Background(), "room-1", actor, Intent{
+		Type: IntentTrade, CommandID: "22222222-2222-2222-2222-222222222222",
+		Offer: &game.TradeOffer{ToPlayerID: "player_2", OfferResources: map[string]int{"money": 50}},
+	}); err != nil {
+		t.Fatalf("trade intent: %v", err)
+	}
+	if service.lastTrade == nil || service.lastTrade.ToPlayerID != "player_2" {
+		t.Fatalf("trade reached the service as %+v", service.lastTrade)
+	}
+}
+
+func TestHubRefusesIncompleteInventoryAndTradeIntents(t *testing.T) {
+	service := &fakeRoomService{
+		room:       &room.Room{ID: "room-1", Members: []room.RoomMember{{ActorKind: "user", ActorID: "user-1", PlayerID: "player_1"}}},
+		transition: room.Transition{RoomID: "room-1", Sequence: 1},
+	}
+	hub, _ := NewHub(service)
+	defer hub.Close()
+	actor := identity.Actor{User: &identity.User{ID: "user-1"}}
+
+	for _, intent := range []Intent{
+		{Type: IntentInventory, CommandID: "11111111-1111-1111-1111-111111111111"},
+		{Type: IntentInventory, CommandID: "11111111-1111-1111-1111-111111111111", Operation: "equip"},
+		{Type: IntentTrade, CommandID: "22222222-2222-2222-2222-222222222222"},
+		// A command ID is required for these exactly as it is for a roll, so a
+		// retried frame cannot equip twice.
+		{Type: IntentInventory, Operation: "equip", Target: "sword"},
+	} {
+		if _, err := hub.Submit(context.Background(), "room-1", actor, intent); err == nil {
+			t.Fatalf("accepted an incomplete intent: %+v", intent)
+		}
+	}
 }

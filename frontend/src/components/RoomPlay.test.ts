@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 
 import RoomPlay from './RoomPlay.svelte';
@@ -49,5 +49,60 @@ describe('RoomPlay', () => {
 
     expect(screen.getByRole('button', { name: 'Mute Guest' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove Guest' })).toBeTruthy();
+  });
+});
+
+describe('RoomPlay inventory and trading', () => {
+  const room = (overrides: Record<string, unknown> = {}) => ({
+    id: 'room-id', title: 'Friday', status: 'active', maxPlayers: 2, sequence: 2,
+    members: [
+      { id: 'host-member', actorKind: 'user', actorId: 'host-id', playerId: 'player_1', displayName: 'Host' },
+      { id: 'guest-member', actorKind: 'user', actorId: 'guest-id', playerId: 'player_2', displayName: 'Guest' },
+    ],
+    session: {
+      id: 'session-id',
+      definition: {
+        board: { width: 100, height: 100, cellSize: 100, cells: [], edges: [] },
+        rules: {
+          resources: { money: { initial: 100 } },
+          equipmentSlots: ['weapon'],
+          items: { sword: { id: 'sword', title: 'Sword', slot: 'weapon' } },
+        },
+      },
+      state: {
+        status: 'active', turnNumber: 1, currentPlayerIndex: 0, cellStates: {},
+        players: [
+          { id: 'player_1', name: 'Host', color: '#fff', positionCellId: '', resources: { money: 100 }, bankrupt: false, inventory: { sword: 1 }, equipped: {} },
+          { id: 'player_2', name: 'Guest', color: '#000', positionCellId: '', resources: { money: 100 }, bankrupt: false, inventory: {}, equipped: {} },
+        ],
+      },
+    },
+    ...overrides,
+  });
+
+  // Queries are scoped to each render: these tests share a file with others
+  // that leave their own markup behind.
+  it('lets the player whose turn it is equip what they carry and offer a trade', () => {
+    // The room protocol carried no inventory command at all, so an online
+    // player could be handed a sword by a cell and never put it on.
+    const { container } = render(RoomPlay, { room: room() as any, canStart: false, canModerate: false, actor: { kind: 'user', id: 'host-id' } });
+    expect(within(container).getByRole('button', { name: /equip/i })).toBeTruthy();
+    expect(within(container).getByRole('button', { name: /propose a trade/i })).toBeTruthy();
+  });
+
+  it('shows another member their own pack, without the controls', () => {
+    const { container } = render(RoomPlay, { room: room() as any, canStart: false, canModerate: false, actor: { kind: 'user', id: 'guest-id' } });
+    // It is not their turn: the pack is visible, equipping is not offered, and
+    // neither is a trade.
+    expect(within(container).getByRole('heading', { name: /pack|рюкзак/i })).toBeTruthy();
+    expect(within(container).queryByRole('button', { name: /equip/i })).toBeNull();
+    expect(within(container).queryByRole('button', { name: /propose a trade/i })).toBeNull();
+  });
+
+  it('leaves the panels out of a game with no items', () => {
+    const plain = room();
+    (plain.session.definition.rules as Record<string, unknown>).items = {};
+    const { container } = render(RoomPlay, { room: plain as any, canStart: false, canModerate: false, actor: { kind: 'user', id: 'host-id' } });
+    expect(within(container).queryByRole('button', { name: /equip/i })).toBeNull();
   });
 });

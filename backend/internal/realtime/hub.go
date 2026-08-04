@@ -9,6 +9,7 @@ import (
 	"log"
 	"sync"
 
+	"rollboard/internal/game"
 	"rollboard/internal/identity"
 	"rollboard/internal/room"
 )
@@ -22,6 +23,11 @@ const (
 	IntentRoll   = "roll"
 	IntentAction = "action"
 	IntentChat   = "chat"
+	// Inventory and trading reached online rooms later than the rest: the
+	// protocol carried only the four intents above, so a player could be given
+	// an item by a cell and never be able to put it on.
+	IntentInventory = "inventory"
+	IntentTrade     = "trade"
 
 	maxReplayEvents = 64
 )
@@ -49,6 +55,8 @@ type commandRoomService interface {
 	RollWithCommand(context.Context, identity.Actor, string, room.Command) (room.Transition, error)
 	ResolveActionWithCommand(context.Context, identity.Actor, string, string, room.Command) (room.Transition, error)
 	SendMessageWithCommand(context.Context, identity.Actor, string, string, room.Command) (room.RoomMessage, error)
+	ManageInventoryWithCommand(context.Context, identity.Actor, string, string, string, room.Command) (room.Transition, error)
+	ProposeTradeWithCommand(context.Context, identity.Actor, string, game.TradeOffer, room.Command) (room.Transition, error)
 }
 
 type Intent struct {
@@ -56,6 +64,13 @@ type Intent struct {
 	CommandID string `json:"commandId,omitempty"`
 	ActionID  string `json:"actionId,omitempty"`
 	Body      string `json:"body,omitempty"`
+	// Operation and Target carry an inventory change: equip, unequip or use,
+	// and the item or slot it applies to.
+	Operation string `json:"operation,omitempty"`
+	Target    string `json:"target,omitempty"`
+	// Offer carries a trade proposal. Who is proposing is never taken from
+	// here — the server uses the sender's own seat.
+	Offer *game.TradeOffer `json:"offer,omitempty"`
 }
 
 type Envelope struct {
@@ -259,6 +274,16 @@ func (h *Hub) Submit(ctx context.Context, roomID string, actor identity.Actor, i
 			return room.Transition{}, fmt.Errorf("%w: action ID is required", ErrUnsupportedIntent)
 		}
 		transition, err = commands.ResolveActionWithCommand(ctx, actor, roomID, intent.ActionID, command)
+	case IntentInventory:
+		if intent.Operation == "" || intent.Target == "" {
+			return room.Transition{}, fmt.Errorf("%w: inventory needs an operation and a target", ErrUnsupportedIntent)
+		}
+		transition, err = commands.ManageInventoryWithCommand(ctx, actor, roomID, intent.Operation, intent.Target, command)
+	case IntentTrade:
+		if intent.Offer == nil {
+			return room.Transition{}, fmt.Errorf("%w: trade needs an offer", ErrUnsupportedIntent)
+		}
+		transition, err = commands.ProposeTradeWithCommand(ctx, actor, roomID, *intent.Offer, command)
 	case IntentChat:
 		message, messageErr := commands.SendMessageWithCommand(ctx, actor, roomID, intent.Body, command)
 		if messageErr != nil {
@@ -299,7 +324,7 @@ func (h *Hub) deliverStoredEvent(roomID string, event *room.StoredEvent) {
 
 func commandForIntent(intent Intent) (room.Command, error) {
 	switch intent.Type {
-	case IntentStart, IntentRoll, IntentAction, IntentChat:
+	case IntentStart, IntentRoll, IntentAction, IntentChat, IntentInventory, IntentTrade:
 		if !isUUID(intent.CommandID) {
 			return room.Command{}, fmt.Errorf("%w: %s requires a UUID commandId", ErrInvalidCommand, intent.Type)
 		}
