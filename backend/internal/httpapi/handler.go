@@ -63,6 +63,10 @@ type RoomService interface {
 	Mute(context.Context, identity.Actor, string, string, bool) error
 	Remove(context.Context, identity.Actor, string, string) error
 	ListMessages(context.Context, identity.Actor, string, int) ([]room.RoomMessage, error)
+	ResolveInvite(context.Context, string) (*room.Invite, error)
+	JoinByInvite(context.Context, identity.Actor, string) (string, error)
+	InviteToken(context.Context, identity.Actor, string) (string, error)
+	RotateInvite(context.Context, identity.Actor, string) (string, error)
 }
 
 type guestClaimer interface {
@@ -522,6 +526,10 @@ func (a *API) handleRoomByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(path, "/")
+	if parts[0] == "invite" {
+		a.handleInvite(w, r, parts[1:])
+		return
+	}
 	roomID := parts[0]
 	if len(parts) == 1 {
 		a.handleRoom(w, r, roomID)
@@ -545,6 +553,10 @@ func (a *API) handleRoomByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 3 && parts[1] == "members" {
 		a.handleRoomRemoval(w, r, roomID, parts[2])
+		return
+	}
+	if len(parts) == 2 && parts[1] == "invite" {
+		a.handleRoomInvite(w, r, roomID)
 		return
 	}
 	writeError(w, http.StatusNotFound, "NOT_FOUND", "not found", "unknown room endpoint")

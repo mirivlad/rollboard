@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { CatalogGame, GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room } from './lib/types';
+  import type { CatalogGame, GameDefinition, GameSession, GameVersion, Principal, PublicUser, Room, RoomInvite } from './lib/types';
   import { ApiError, api } from './lib/api';
   import { errorMessage, i18n } from './lib/i18n.svelte';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
   import AuthPanel from './components/AuthPanel.svelte';
+  import InviteCard from './components/InviteCard.svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
   import ThemeToggle from './components/ThemeToggle.svelte';
   import BoardEditor from './components/BoardEditor.svelte';
@@ -13,7 +14,9 @@
   import RoomLobby from './components/RoomLobby.svelte';
   import RoomPlay from './components/RoomPlay.svelte';
 
-  let view = $state<'loading' | 'auth' | 'dashboard' | 'setup' | 'editor' | 'playtest' | 'rooms' | 'room'>('loading');
+  let view = $state<'loading' | 'auth' | 'invite' | 'dashboard' | 'setup' | 'editor' | 'playtest' | 'rooms' | 'room'>('loading');
+  let pendingInvite = $state<RoomInvite | null>(null);
+  let inviteToken = $state('');
   let principal = $state<Principal | null>(null);
   let currentGame = $state<GameDefinition | null>(null);
   let currentSession = $state<GameSession | null>(null);
@@ -46,18 +49,62 @@
     // Language first, so a failure below is reported in the player's language
     // rather than in English.
     await i18n.init();
+
+    inviteToken = new URLSearchParams(location.search).get('invite') ?? '';
+
+    let signedIn = false;
     try {
       await api.health();
-      if (!document.cookie.includes('rollboard_csrf=')) {
-        view = 'auth';
-        return;
+      if (document.cookie.includes('rollboard_csrf=')) {
+        principal = await api.me();
+        await refreshCatalog();
+        signedIn = true;
       }
-      principal = await api.me();
-      await refreshCatalog();
-      view = 'dashboard';
     } catch {
-      view = 'auth';
+      signedIn = false;
     }
+
+    if (inviteToken) {
+      try {
+        pendingInvite = await api.resolveInvite(inviteToken);
+        view = 'invite';
+        return;
+      } catch {
+        // A stale or withdrawn link should not trap somebody on an error
+        // screen; drop it and carry on to the normal entry point.
+        clearInviteFromURL();
+      }
+    }
+    view = signedIn ? 'dashboard' : 'auth';
+  }
+
+  /** Take the token out of the address bar so a reload or share does not
+      re-trigger the invite, and so it stays out of the browser history. */
+  function clearInviteFromURL() {
+    inviteToken = '';
+    pendingInvite = null;
+    const url = new URL(location.href);
+    url.searchParams.delete('invite');
+    history.replaceState(null, '', url.pathname + url.search);
+  }
+
+  async function acceptInvite(displayName: string) {
+    busy = true; message = '';
+    try {
+      if (!principal) {
+        principal = await api.enterGuest(displayName);
+      }
+      const { roomId } = await api.joinByInvite(inviteToken);
+      currentRoom = await api.getRoom(roomId);
+      clearInviteFromURL();
+      view = 'room';
+    } catch (error) { showError(error); } finally { busy = false; }
+  }
+
+  function dismissInvite() {
+    const wasSignedIn = principal !== null;
+    clearInviteFromURL();
+    view = wasSignedIn ? 'dashboard' : 'auth';
   }
 
   async function enterGuest(name: string) {
@@ -116,7 +163,7 @@
 </script>
 
 <div class="app">
-  {#if view !== 'auth' && view !== 'loading'}
+  {#if view !== 'auth' && view !== 'loading' && view !== 'invite'}
     <header>
       <strong class="brand">Rollboard</strong>
       <span class="who">{displayName()}</span>
@@ -128,12 +175,14 @@
       </div>
     </header>
   {/if}
-  <main class:centred={view === 'auth' || view === 'loading'}>
+  <main class:centred={view === 'auth' || view === 'loading' || view === 'invite'}>
     <!-- The auth panel renders the message inline next to the form, so the
          banner would be a duplicate there. -->
-    {#if message && view !== 'auth'}<p class="message" role="alert">{message}</p>{/if}
+    {#if message && view !== 'auth' && view !== 'invite'}<p class="message" role="alert">{message}</p>{/if}
     {#if view === 'loading'}<p class="loading">{t('app.connecting')}</p>
     {:else if view === 'auth'}<AuthPanel onGuest={enterGuest} onRegister={register} onLogin={login} {busy} error={message} />
+    {:else if view === 'invite' && pendingInvite}
+      <InviteCard invite={pendingInvite} needsIdentity={principal === null} onJoin={acceptInvite} onDismiss={dismissInvite} {busy} error={message} />
     {:else if view === 'dashboard'}
       {#if principal?.kind === 'user'}<GameDashboard displayName={displayName()} onCreate={create} games={ownedGames} onOpen={openGame} {busy} />
       {:else}<RoomLobby versions={[]} onCreate={createRoom} onJoin={joinRoom} {busy} />{/if}

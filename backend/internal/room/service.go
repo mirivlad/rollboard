@@ -153,12 +153,17 @@ func (s *Service) Create(ctx context.Context, host identity.Actor, gameVersionID
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	inviteToken, err := newInviteToken()
+	if err != nil {
+		return Room{}, err
+	}
+
 	var created Room
 	err = tx.QueryRow(ctx, `
-		INSERT INTO rooms (game_version_id, host_user_id, title, max_players)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO rooms (game_version_id, host_user_id, title, max_players, invite_token)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id::text, game_version_id::text, host_user_id::text, title, max_players, status, sequence, created_at, updated_at`,
-		version.ID, host.User.ID, input.Title, input.MaxPlayers).
+		version.ID, host.User.ID, input.Title, input.MaxPlayers, inviteToken).
 		Scan(&created.ID, &created.GameVersionID, &created.HostUserID, &created.Title, &created.MaxPlayers, &created.Status, &created.Sequence, &created.CreatedAt, &created.UpdatedAt)
 	if err != nil {
 		return Room{}, fmt.Errorf("insert room: %w", err)

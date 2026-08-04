@@ -1,4 +1,4 @@
-import type { CatalogGame, GameDefinition, GameSession, GameVersion, PlayerConfig, Principal, PublicUser, Room, RoomMember, RoomMessage } from './types';
+import type { CatalogGame, GameDefinition, GameSession, GameVersion, PlayerConfig, Principal, PublicUser, Room, RoomInvite, RoomMember, RoomMessage } from './types';
 
 const BASE = '/api';
 
@@ -78,6 +78,11 @@ export const api = {
   getRoom(id: string): Promise<Room> { return request(`/rooms/${id}`); },
   joinRoom(id: string): Promise<RoomMember> { return request(`/rooms/${id}/join`, { method: 'POST' }); },
   listRoomMessages(id: string): Promise<RoomMessage[]> { return request(`/rooms/${id}/messages`); },
+
+  resolveInvite(token: string): Promise<RoomInvite> { return request(`/rooms/invite/${encodeURIComponent(token)}`); },
+  joinByInvite(token: string): Promise<{ roomId: string }> { return request(`/rooms/invite/${encodeURIComponent(token)}/join`, { method: 'POST' }); },
+  getRoomInvite(roomID: string): Promise<{ token: string }> { return request(`/rooms/${roomID}/invite`); },
+  rotateRoomInvite(roomID: string): Promise<{ token: string }> { return request(`/rooms/${roomID}/invite`, { method: 'POST' }); },
   muteRoomMember(roomID: string, memberID: string, muted: boolean): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }); },
   removeRoomMember(roomID: string, memberID: string): Promise<void> { return request(`/rooms/${roomID}/members/${memberID}`, { method: 'DELETE' }); },
 

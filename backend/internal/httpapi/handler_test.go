@@ -671,6 +671,14 @@ type fakeRooms struct {
 	muteCalled   bool
 	removeCalled bool
 	messages     []room.RoomMessage
+
+	invite              *room.Invite
+	inviteErr           error
+	inviteToken         string
+	invitedRoomID       string
+	resolveInviteCalled bool
+	joinByInviteCalled  bool
+	rotateCalled        bool
 }
 
 func (f *fakeRooms) Create(context.Context, identity.Actor, string, room.CreateInput) (room.Room, error) {
@@ -697,6 +705,25 @@ func (f *fakeRooms) Remove(context.Context, identity.Actor, string, string) erro
 
 func (f *fakeRooms) ListMessages(context.Context, identity.Actor, string, int) ([]room.RoomMessage, error) {
 	return f.messages, nil
+}
+
+func (f *fakeRooms) ResolveInvite(context.Context, string) (*room.Invite, error) {
+	f.resolveInviteCalled = true
+	return f.invite, f.inviteErr
+}
+
+func (f *fakeRooms) JoinByInvite(context.Context, identity.Actor, string) (string, error) {
+	f.joinByInviteCalled = true
+	return f.invitedRoomID, f.inviteErr
+}
+
+func (f *fakeRooms) InviteToken(context.Context, identity.Actor, string) (string, error) {
+	return f.inviteToken, f.inviteErr
+}
+
+func (f *fakeRooms) RotateInvite(context.Context, identity.Actor, string) (string, error) {
+	f.rotateCalled = true
+	return f.inviteToken, f.inviteErr
 }
 
 func (f *fakeRooms) Start(context.Context, identity.Actor, string) (*room.Room, error) {

@@ -237,3 +237,14 @@ export interface PendingAction {
   cellId?: string;
   options?: ActionOption[];
 }
+
+/** What somebody holding an invite link may see before joining. */
+export interface RoomInvite {
+  roomId: string;
+  title: string;
+  gameTitle: string;
+  status: string;
+  memberCount: number;
+  maxPlayers: number;
+  joinable: boolean;
+}
