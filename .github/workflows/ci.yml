@@ -120,6 +120,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # arm64 is emulated on the amd64 runner, so it needs binfmt registered.
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
@@ -136,9 +141,22 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          # Apple Silicon and Raspberry Pi are exactly the machines people
+          # self-host this on, and an amd64-only image does not run on either.
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify both architectures were published
+        if: github.event_name == 'push'
+        run: |
+          manifest="$(docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ github.sha }} --raw)"
+          for platform in amd64 arm64; do
+            echo "$manifest" | grep -q "\"architecture\": *\"$platform\"" \
+              || { echo "$platform missing from the published manifest" >&2; exit 1; }
+          done
+          echo "amd64 and arm64 both present."
