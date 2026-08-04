@@ -55,6 +55,19 @@ export interface RuleSet {
   cellTypes: Record<string, CellTypeDefinition>;
   startBonus: number;
   startBonusResource?: string;
+  items?: Record<string, ItemDef>;
+  equipmentSlots?: string[];
+  hiddenCells?: boolean;
+  movement?: 'path' | 'free';
+  progression?: ProgressionRule;
+}
+
+export interface ProgressionRule {
+  experienceResource: string;
+  levelResource: string;
+  pointsResource?: string;
+  pointsPerLevel?: number;
+  thresholds: number[];
 }
 
 export interface DiceRule {
@@ -207,6 +220,16 @@ export interface GameState {
   pendingAction?: PendingAction;
 }
 
+export interface ItemDef {
+  id: string;
+  title: string;
+  slot?: string;
+  bonuses?: Record<string, number>;
+  consumable?: boolean;
+  /** Actions run when a consumable is used. */
+  use?: ActionDefinition[];
+}
+
 export interface PlayerState {
   id: string;
   name: string;
@@ -214,13 +237,20 @@ export interface PlayerState {
   positionCellId: string;
   resources: Record<string, number>;
   bankrupt: boolean;
+  skipTurns?: number;
+  inventory?: Record<string, number>;
+  equipped?: Record<string, string>;
 }
 
 export interface CellState {
   ownerPlayerId?: string;
   mortgaged?: boolean;
   level?: number;
+  revealed?: boolean;
 }
+
+/** The type a face-down cell reports; its real contents never reach the client. */
+export const HIDDEN_CELL_TYPE = '__hidden';
 
 export interface GameEvent {
   id: string;

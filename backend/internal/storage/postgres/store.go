@@ -122,7 +122,7 @@ func (s *Store) UpdateGame(ctx context.Context, definition *game.GameDefinition)
 }
 
 func (s *Store) SaveSession(ctx context.Context, ownerUserID string, session *game.GameSession) error {
-	raw, err := json.Marshal(session)
+	raw, err := json.Marshal(game.ForStorage{Session: session})
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}

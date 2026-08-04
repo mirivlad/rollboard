@@ -112,6 +112,13 @@ export const api = {
     });
   },
 
+  manageInventory(sessionId: string, operation: 'equip' | 'unequip' | 'use', target: string): Promise<GameSession> {
+    return request(`/sessions/${sessionId}/inventory`, {
+      method: 'POST',
+      body: JSON.stringify({ operation, target }),
+    });
+  },
+
   nextTurn(sessionId: string): Promise<GameSession> {
     return request(`/sessions/${sessionId}/next-turn`, { method: 'POST' });
   },

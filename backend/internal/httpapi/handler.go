@@ -1091,6 +1091,27 @@ func (a *API) handleSessionCommand(w http.ResponseWriter, r *http.Request, sessi
 		}
 		session.State.Log = append(session.State.Log, events...)
 
+	case "inventory":
+		var body struct {
+			Operation string `json:"operation"`
+			Target    string `json:"target"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON", "request body must be valid JSON")
+			return
+		}
+		current := session.CurrentPlayer()
+		if current == nil {
+			writeError(w, http.StatusBadRequest, "INVALID_STATE", "no current player", "start the game first")
+			return
+		}
+		events, err := session.ManageInventory(current.ID, body.Operation, body.Target)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_ACTION", "inventory change is not allowed", err.Error())
+			return
+		}
+		session.State.Log = append(session.State.Log, events...)
+
 	case "next-turn":
 		if session.State.PendingAction != nil {
 			writeError(w, http.StatusBadRequest, "PENDING_ACTION", "pending action must be resolved first", "choose an available action")

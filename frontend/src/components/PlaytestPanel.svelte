@@ -3,6 +3,7 @@
   import { api } from '../lib/api';
   import { errorMessage, i18n } from '../lib/i18n.svelte';
   import BoardView from './BoardView.svelte';
+  import InventoryPanel from './InventoryPanel.svelte';
 
   let { currentGame, session, onSessionCreated, onBack }: {
     currentGame: GameDefinition;
@@ -101,6 +102,10 @@
   });
 
   let isAnimating = $derived(animState !== null && animState.step < animState.path.length);
+  // Only games that define items get an inventory panel at all.
+  let hasInventory = $derived(
+    Object.keys(currentSession?.definition.rules.items ?? {}).length > 0
+  );
 
   // Cleanup timers when session changes (e.g. HMR reload, game switch)
   let prevSessionId = $state<string | null>(null);
@@ -208,6 +213,22 @@
       const s = await api.performAction(currentSession.id, actionId);
       currentSession = s;
       phase = 'turn_done';
+    } catch (e: unknown) {
+      error = errorMessage(t, e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** The inventory panel emits "equip:id", "unequip:slot" or "use:id". */
+  async function handleInventory(command: string) {
+    if (!currentSession) return;
+    const [operation, target] = command.split(/:(.*)/s);
+    if (operation !== 'equip' && operation !== 'unequip' && operation !== 'use') return;
+    loading = true;
+    error = '';
+    try {
+      currentSession = await api.manageInventory(currentSession.id, operation, target);
     } catch (e: unknown) {
       error = errorMessage(t, e);
     } finally {
@@ -450,6 +471,17 @@
               </div>
             {/if}
           </div>
+
+          {#if hasInventory && currentPlayer}
+            <div class="panel">
+              <InventoryPanel
+                session={currentSession}
+                player={currentPlayer}
+                canAct={!loading && diceState === 'idle' && !isAnimating && !currentSession.state.pendingAction}
+                onAction={handleInventory}
+              />
+            </div>
+          {/if}
 
           <div class="panel log-panel">
             <h3>{t('playtest.eventLog')}</h3>

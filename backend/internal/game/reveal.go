@@ -128,9 +128,27 @@ const hiddenCellType = "__hidden"
 // the hotseat API, the room snapshot, the WebSocket transitions and the stored
 // event journal all serialise sessions, and a face-down cell whose contents
 // leak through any one of them is not hidden at all.
+//
+// Storage is the one place that must NOT go through here — see ForStorage.
 func (s *GameSession) MarshalJSON() ([]byte, error) {
 	type sessionAlias GameSession
 	shown := sessionAlias(*s)
 	shown.Definition = s.VisibleDefinition()
 	return json.Marshal(shown)
+}
+
+// ForStorage wraps a session so it serialises in full.
+//
+// Persisting the stripped view would destroy the game: a face-down cell would
+// come back from the database with no title, no fields and no actions, and the
+// next reveal would turn over an empty square. Found by playing a dungeon
+// where every chest turned out to be empty after the first save.
+type ForStorage struct{ Session *GameSession }
+
+func (f ForStorage) MarshalJSON() ([]byte, error) {
+	if f.Session == nil {
+		return []byte("null"), nil
+	}
+	type sessionAlias GameSession
+	return json.Marshal((*sessionAlias)(f.Session))
 }

@@ -62,9 +62,28 @@ type RuleSet struct {
 	// EquipmentSlots names the places an item can be worn, in display order.
 	// One item per slot.
 	EquipmentSlots []string `json:"equipmentSlots,omitempty"`
+	// Progression turns an experience counter into levels and spendable
+	// points. Levels are common enough across games to belong in the rules
+	// rather than being rebuilt from conditionals in every definition.
+	Progression *ProgressionRule `json:"progression,omitempty"`
+	// Movement selects how a roll is spent. "path" (the default) walks the
+	// graph edge by edge; "free" lets the player choose any cell within range.
+	Movement string `json:"movement,omitempty"`
 	// HiddenCells starts every cell face down. Landing on one turns it over,
 	// and a reveal_cells action can turn over more.
 	HiddenCells bool `json:"hiddenCells,omitempty"`
+}
+
+// ProgressionRule describes how experience becomes levels.
+type ProgressionRule struct {
+	ExperienceResource string `json:"experienceResource"`
+	LevelResource      string `json:"levelResource"`
+	// PointsResource receives PointsPerLevel on each level gained.
+	PointsResource string `json:"pointsResource"`
+	PointsPerLevel int    `json:"pointsPerLevel"`
+	// Thresholds[i] is the total experience needed to reach level i+2. Running
+	// past the end of the list simply means the maximum level is reached.
+	Thresholds []int `json:"thresholds"`
 }
 
 // ItemDef describes one kind of item.

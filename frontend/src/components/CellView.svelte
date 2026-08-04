@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { HIDDEN_CELL_TYPE } from '../lib/types';
+  import { i18n } from '../lib/i18n.svelte';
   import type { CellDefinition, CellState, PlayerState } from '../lib/types';
 
   let { cell, cellSize, cellState, players, isSelected }: {
@@ -14,31 +16,60 @@
       ? (players || []).find(p => p.id === cellState!.ownerPlayerId)
       : undefined
   );
+
+  let t = $derived(i18n.t);
+  let isHidden = $derived(cell.type === HIDDEN_CELL_TYPE);
 </script>
 
 <div
   class="cell"
   class:selected={isSelected}
+  class:hidden-cell={isHidden}
   style="
     left: {cell.x}px;
     top: {cell.y}px;
     width: {cellSize}px;
     height: {cellSize}px;
-    background-color: {cell.visual.baseColor || '#eee'};
+    background-color: {isHidden ? '' : cell.visual.baseColor || '#eee'};
     background-image: {cell.visual.baseImage ? `url(${cell.visual.baseImage})` : 'none'};
     background-size: cover;
   "
 >
-  <div class="cell-content">
-    <span class="cell-type">{cell.type}</span>
-    <span class="cell-title">{cell.title}</span>
-  </div>
+  {#if isHidden}
+    <!-- The server never sends what is under a face-down cell, so there is
+         nothing here to reveal by reading the page. -->
+    <div class="cell-back" aria-label={t('rpg.unexplored')}>?</div>
+  {:else}
+    <div class="cell-content">
+      <span class="cell-type">{cell.type}</span>
+      <span class="cell-title">{cell.title}</span>
+    </div>
+  {/if}
   {#if owner}
     <div class="owner-stripe" style="background-color: {owner.color}"></div>
   {/if}
 </div>
 
 <style>
+  .hidden-cell {
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--surface-raised),
+      var(--surface-raised) 6px,
+      var(--surface-sunken) 6px,
+      var(--surface-sunken) 12px
+    ) !important;
+    border-color: var(--border-strong);
+  }
+  .cell-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-faint);
+    font-size: 1.75rem;
+    font-weight: var(--weight-black);
+  }
   .cell {
     position: absolute;
     border: 2px solid rgba(0, 0, 0, 0.35);

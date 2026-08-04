@@ -182,6 +182,12 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 		return nil
 	}
 
+	// In free movement the roll is a budget, not a path: the player picks any
+	// cell within range and the walk in between never happens.
+	if s.freeMovementEnabled() {
+		return append(events, s.offerFreeMove(player, diceRolls, diceTotal)...)
+	}
+
 	if steps <= 0 {
 		events = append(events, NewGameEvent("move",
 			fmt.Sprintf("%s stayed in place (rolled %d)", player.Name, diceTotal),
@@ -401,6 +407,10 @@ func (s *GameSession) executeActions(actions []ActionDefinition, player *PlayerS
 		}
 		actionEvents := s.executeOneAction(a, player, cell)
 		events = append(events, actionEvents...)
+		// Checked after each action rather than once at the end, so a level
+		// gained partway through a list is already in effect for the actions
+		// that follow it.
+		events = append(events, s.applyProgression(player)...)
 	}
 	return events
 }
@@ -686,6 +696,8 @@ func (s *GameSession) ResolvePendingAction(actionID string) ([]GameEvent, error)
 	}
 
 	switch s.State.PendingAction.Type {
+	case "free_move":
+		return s.resolveFreeMove(actionID)
 	case "route_choice":
 		return s.resolveRouteChoice(actionID)
 	default:

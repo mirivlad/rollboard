@@ -143,3 +143,41 @@ func TestMarshallingASessionWithNoDefinitionDoesNotPanic(t *testing.T) {
 		}
 	}
 }
+
+// Persistence and presentation pull in opposite directions, and getting them
+// the wrong way round destroys the game: a face-down cell stored in its
+// stripped form comes back with no contents, so revealing it turns over an
+// empty square. This asserts both directions at once.
+func TestStorageKeepsWhatTheWireHides(t *testing.T) {
+	session := StartSession(hiddenDefinition(), []PlayerConfig{{Name: "Ada", Color: "#111"}, {Name: "Bob", Color: "#222"}})
+
+	wire, err := json.Marshal(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), "Dragon's Lair") {
+		t.Fatal("the wire form leaks a face-down cell")
+	}
+
+	stored, err := json.Marshal(ForStorage{Session: session})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stored), "Dragon's Lair") {
+		t.Fatal("the stored form lost the contents of a face-down cell")
+	}
+
+	// Round-trip it the way the database does, then reveal: the cell must
+	// still have everything on it.
+	var restored GameSession
+	if err := json.Unmarshal(stored, &restored); err != nil {
+		t.Fatal(err)
+	}
+	cave := restored.Definition.Board.getCellByID("cave")
+	if cave == nil || cave.Title != "Dragon's Lair" {
+		t.Fatalf("cave = %#v, want its title back after a storage round trip", cave)
+	}
+	if len(cave.OnLand) == 0 || cave.Fields["treasure"] == nil {
+		t.Fatalf("cave = %#v, want its actions and fields back", cave)
+	}
+}

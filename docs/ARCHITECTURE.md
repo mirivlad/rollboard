@@ -47,8 +47,21 @@ The engine is **generic** — no game-specific code.
    - `offer_choice` (player-chosen branching), `random_branch` (server-chosen branching)
    - `if_cell_unowned`, `if_cell_owned_by_current`, `if_cell_owned_by_other`,
      `if_cell_level_ge`, `if_cell_mortgaged`, `if_resource_ge`
-   - `move_player_to`, `skip_turns`
+   - `move_player_to`, `skip_turns`, `reveal_cells`
+   - `grant_item`, `remove_item`, `equip_item`, `unequip_slot`, `use_item`
+   - `if_has_item`, `if_stat_ge`
    - `finish_game`, `eliminate_player`, `log_message`
+
+4. **Items** are the definition's catalogue of things a player carries. A
+   resource is a number; an item is a named thing with its own effects, which
+   is what a sword has to be and a counter cannot. Bonuses apply only while an
+   item is equipped and are never folded into the stored resource, so taking
+   equipment off is not lossy. `if_stat_ge` reads the effective value;
+   `if_resource_ge` reads the raw one.
+5. **Hidden cells** stay face down until landed on or scouted. The stripping
+   happens when a session is serialised for the wire, and only for the wire:
+   storage keeps the full definition, because a face-down cell persisted in its
+   stripped form would come back empty.
 
    None of these know about any particular game. `set_cell_level` is houses in a
    property game and fortification in a war game; `skip_turns` is a jail

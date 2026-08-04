@@ -234,12 +234,25 @@ code in the engine.
 `set_cell_owner`, `set_cell_level`, `set_cell_mortgaged`, `offer_choice`,
 `random_branch`, `if_cell_unowned`, `if_cell_owned_by_current`,
 `if_cell_owned_by_other`, `if_cell_level_ge`, `if_cell_mortgaged`,
-`if_resource_ge`, `move_player_to`, `skip_turns`, `finish_game`,
-`eliminate_player`, `log_message`.
+`if_resource_ge`, `if_stat_ge`, `if_has_item`, `grant_item`, `remove_item`,
+`equip_item`, `unequip_slot`, `use_item`, `reveal_cells`, `move_player_to`,
+`skip_turns`, `finish_game`, `eliminate_player`, `log_message`.
 
-The bundled **Monopoly** template is 40 squares of pure data: buying, rent that
-scales with buildings, mortgaging, jail, chance cards and bankruptcy, with no
-game-specific code in the engine.
+Beyond a board and resources, a definition can also declare **items** with
+equipment slots and stat bonuses, **levels** with experience thresholds and
+spendable points, **hidden cells** that stay face down until explored, and
+**free movement**, where a roll is a budget spent on any square in reach rather
+than a fixed path.
+
+Two bundled templates show the range:
+
+- **Monopoly** — 40 squares of pure data: buying, rent that scales with
+  buildings, mortgaging, jail, chance cards and bankruptcy.
+- **Dungeon Crawl** — a 6×6 map you explore square by square, with stats,
+  levels, loot you equip, traps, enemies whose difficulty is checked against
+  your effective attack, and a dragon to kill.
+
+Neither has a line of game-specific code in the engine.
 
 **Edge conditions:** `always`, `dice_total_even`, `dice_total_odd`,
 `dice_total_in`, `manual_choice`, `pay_resource`, `player_resource_at_least`.

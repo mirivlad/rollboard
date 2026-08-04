@@ -734,7 +734,7 @@ func loadRoom(ctx context.Context, queryer roomQuerier, roomID string, lock bool
 }
 
 func persistSession(ctx context.Context, tx pgx.Tx, stored *Room) error {
-	raw, err := json.Marshal(stored.Session)
+	raw, err := json.Marshal(game.ForStorage{Session: stored.Session})
 	if err != nil {
 		return fmt.Errorf("encode room session: %w", err)
 	}

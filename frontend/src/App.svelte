@@ -4,6 +4,7 @@
   import { errorMessage, i18n } from './lib/i18n.svelte';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
   import { createMonopolyDemo } from './lib/monopoly';
+  import { createRpgDemo } from './lib/rpg';
   import AuthPanel from './components/AuthPanel.svelte';
   import InviteCard from './components/InviteCard.svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
@@ -125,6 +126,7 @@
     busy = true; message = '';
     const definition = template === 'mini-monopoly' ? createMiniMonopolyDemo()
       : template === 'monopoly' ? createMonopolyDemo()
+      : template === 'rpg' ? createRpgDemo()
       : template === 'dungeon-race' ? createDungeonRaceDemo()
       : createDefaultGame();
     try { const game = await api.createDraft(definition); currentGame = await api.getDraft(game.id); view = advanced ? 'editor' : 'setup'; } catch (error) { showError(error); } finally { busy = false; }

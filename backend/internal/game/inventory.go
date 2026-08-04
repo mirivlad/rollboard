@@ -160,3 +160,39 @@ func (s *GameSession) useItem(player *PlayerState, itemID string, cell *CellDefi
 	}
 	return events
 }
+
+// ManageInventory handles a player rearranging their own kit.
+//
+// Equipping is a turn action rather than something that needs a special cell:
+// a player who finds a better sword should be able to draw it. It is still
+// restricted to the player whose turn it is, and blocked while a choice is
+// outstanding, so it cannot be used to dodge a decision.
+func (s *GameSession) ManageInventory(playerID, operation, target string) ([]GameEvent, error) {
+	if s.State.Status != "active" {
+		return nil, fmt.Errorf("game is not active")
+	}
+	if s.State.PendingAction != nil {
+		return nil, fmt.Errorf("resolve the pending action first")
+	}
+	current := s.CurrentPlayer()
+	if current == nil || current.ID != playerID {
+		return nil, fmt.Errorf("it is not this player's turn")
+	}
+	cell := s.Definition.Board.getCellByID(current.PositionCellID)
+	if cell == nil {
+		return nil, fmt.Errorf("player is not on a known cell")
+	}
+
+	switch operation {
+	case "equip":
+		return s.equipItem(current, target), nil
+	case "unequip":
+		return s.unequipSlot(current, target), nil
+	case "use":
+		events := s.useItem(current, target, cell)
+		// Using something can push a player over a level threshold.
+		return append(events, s.applyProgression(current)...), nil
+	default:
+		return nil, fmt.Errorf("unknown inventory operation %q", operation)
+	}
+}

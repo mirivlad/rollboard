@@ -2,7 +2,7 @@
   import type { CatalogGame } from '../lib/types';
   import { i18n } from '../lib/i18n.svelte';
 
-  export type Template = 'blank' | 'mini-monopoly' | 'monopoly' | 'dungeon-race';
+  export type Template = 'blank' | 'mini-monopoly' | 'monopoly' | 'dungeon-race' | 'rpg';
 
   type Props = {
     displayName: string;
@@ -41,6 +41,9 @@
       </button>
       <button onclick={() => onCreate('monopoly', advanced)} disabled={busy}>
         <strong>{t('dashboard.template.monopoly')}</strong><span>{t('dashboard.template.monopolyHint')}</span>
+      </button>
+      <button onclick={() => onCreate('rpg', advanced)} disabled={busy}>
+        <strong>{t('dashboard.template.rpg')}</strong><span>{t('dashboard.template.rpgHint')}</span>
       </button>
     </div>
   </section>
