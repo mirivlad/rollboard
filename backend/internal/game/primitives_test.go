@@ -291,3 +291,46 @@ func TestValidationRejectsMalformedNewActions(t *testing.T) {
 		})
 	}
 }
+
+func TestEliminatePlayerEndsTheGameAndReleasesTheirSquares(t *testing.T) {
+	session := primitiveSession(t)
+	loser := &session.State.Players[0]
+	winner := session.State.Players[1]
+	plot := session.Definition.Board.getCellByID("plot")
+	trap := session.Definition.Board.getCellByID("trap")
+
+	session.executeOneAction(ActionDefinition{Type: "set_cell_owner", Target: "current"}, loser, plot)
+	session.executeOneAction(ActionDefinition{Type: "set_cell_owner", Target: "current"}, loser, trap)
+
+	events := session.executeOneAction(ActionDefinition{Type: "eliminate_player"}, loser, plot)
+
+	if !loser.Bankrupt {
+		t.Fatal("player was not marked bankrupt")
+	}
+	// An eliminated player owns nothing, so their squares can be bought again.
+	for _, id := range []string{"plot", "trap"} {
+		if owner := session.State.CellStates[id].OwnerPlayerID; owner != "" {
+			t.Fatalf("cell %s still owned by %q after elimination", id, owner)
+		}
+	}
+	if session.State.Status != "finished" {
+		t.Fatalf("status = %q, want the game to end with one player left", session.State.Status)
+	}
+	if session.State.WinnerPlayerID != winner.ID {
+		t.Fatalf("winner = %q, want the surviving player", session.State.WinnerPlayerID)
+	}
+	if len(events) == 0 || events[0].Type != "player_eliminated" {
+		t.Fatalf("events = %#v, want a player_eliminated event", events)
+	}
+}
+
+func TestEliminatingTheSamePlayerTwiceIsHarmless(t *testing.T) {
+	session := primitiveSession(t)
+	loser := &session.State.Players[0]
+	plot := session.Definition.Board.getCellByID("plot")
+
+	session.executeOneAction(ActionDefinition{Type: "eliminate_player"}, loser, plot)
+	if events := session.executeOneAction(ActionDefinition{Type: "eliminate_player"}, loser, plot); len(events) != 0 {
+		t.Fatalf("events = %#v, want the repeat elimination to do nothing", events)
+	}
+}

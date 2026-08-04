@@ -231,8 +231,15 @@ That snippet is the whole of "property purchase and rent". There is no property
 code in the engine.
 
 **Action types:** `gain_resource`, `lose_resource`, `transfer_resource`,
-`set_cell_owner`, `offer_choice`, `if_cell_unowned`, `if_cell_owned_by_current`,
-`if_cell_owned_by_other`, `if_resource_ge`, `finish_game`, `log_message`.
+`set_cell_owner`, `set_cell_level`, `set_cell_mortgaged`, `offer_choice`,
+`random_branch`, `if_cell_unowned`, `if_cell_owned_by_current`,
+`if_cell_owned_by_other`, `if_cell_level_ge`, `if_cell_mortgaged`,
+`if_resource_ge`, `move_player_to`, `skip_turns`, `finish_game`,
+`eliminate_player`, `log_message`.
+
+The bundled **Monopoly** template is 40 squares of pure data: buying, rent that
+scales with buildings, mortgaging, jail, chance cards and bankruptcy, with no
+game-specific code in the engine.
 
 **Edge conditions:** `always`, `dice_total_even`, `dice_total_odd`,
 `dice_total_in`, `manual_choice`, `pay_resource`, `player_resource_at_least`.
@@ -272,6 +279,8 @@ Stated plainly, so you can judge whether Rollboard fits before deploying it:
 - **Rate limiting is per replica.** Behind N replicas the effective ceiling is N times the configured limit.
 - **No bots.** Every player must be a human.
 - **No undo.** The event journal records what happened but cannot roll it back.
+- **Actions cannot read other cells.** This rules out colour-group monopolies and rent that scales with how many squares of a kind you own.
+- **No trading or auctions.** A pending action is addressed to one player, so two-player negotiation cannot be expressed.
 - **Journal retention is unbounded.** Pruning policy is not implemented; busy deployments will want one.
 - **No load testing has been done.** Treat capacity claims as unproven.
 - **Images are URLs only.** There are no file uploads.

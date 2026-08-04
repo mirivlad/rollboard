@@ -93,6 +93,8 @@ func validateAction(action ActionDefinition) []string {
 				errs = append(errs, validateAction(nested)...)
 			}
 		}
+	case "eliminate_player":
+		// no required fields
 	case "launch_minigame":
 		if action.MiniGame == nil || strings.TrimSpace(action.MiniGame.ModuleID) == "" || action.MiniGame.Version < 1 {
 			errs = append(errs, "launch_minigame: miniGame.moduleId and positive miniGame.version are required")

@@ -43,10 +43,16 @@ The engine is **generic** — no game-specific code.
 2. **GameSession** is created from a GameDefinition + player list. It holds mutable state.
 3. **Actions** (ActionDefinition) are data-driven — they describe what happens when a player lands on a cell:
    - `gain_resource`, `lose_resource`, `transfer_resource`
-   - `set_cell_owner`
-   - `offer_choice` (branching with options)
-   - `if_cell_unowned`, `if_cell_owned_by_current`, `if_cell_owned_by_other`, `if_resource_ge`
-   - `finish_game`, `log_message`
+   - `set_cell_owner`, `set_cell_level`, `set_cell_mortgaged`
+   - `offer_choice` (player-chosen branching), `random_branch` (server-chosen branching)
+   - `if_cell_unowned`, `if_cell_owned_by_current`, `if_cell_owned_by_other`,
+     `if_cell_level_ge`, `if_cell_mortgaged`, `if_resource_ge`
+   - `move_player_to`, `skip_turns`
+   - `finish_game`, `eliminate_player`, `log_message`
+
+   None of these know about any particular game. `set_cell_level` is houses in a
+   property game and fortification in a war game; `skip_turns` is a jail
+   sentence and a stun effect.
 4. **Server is authoritative** — dice are rolled server-side, movement is computed server-side.
 5. Frontend only sends intentions ("I want to roll"), never results.
 
@@ -109,6 +115,25 @@ the same transaction. Retrying `start`, `roll`, `action` or `chat` returns that
 stored result without re-executing the command. On reconnect, the hub replays up
 to 64 contiguous journal events newer than `since`; any gap or longer range
 safely produces the latest authenticated PostgreSQL snapshot instead.
+
+## What the action language cannot express yet
+
+Building the full 40-square Monopoly template was the exercise that mapped the
+edges of the current action set. These are the gaps it found:
+
+- **No cross-cell queries.** An action can read and write the cell it is running
+  on, and nothing else. That rules out colour-group monopolies ("double rent if
+  one player owns every square of this colour") and station rent that scales
+  with how many stations the owner holds.
+- **No player-to-player negotiation.** A `PendingAction` is addressed to exactly
+  one player, so trading and auctions cannot be represented.
+- **No table lookups.** Tiered values are written as descending `if_*_ge`
+  chains, which works but is verbose.
+- **Payments floor at zero rather than failing.** `lose_resource` and
+  `transfer_resource` clamp, so a definition that wants bankruptcy must guard
+  the payment with `if_resource_ge` and call `eliminate_player` in the else
+  branch. Nothing in the engine decides that for you, which is deliberate: what
+  counts as ruin belongs to the game, not to the runtime.
 
 ## Implementation boundaries
 

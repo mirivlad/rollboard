@@ -3,6 +3,7 @@
   import { ApiError, api } from './lib/api';
   import { errorMessage, i18n } from './lib/i18n.svelte';
   import { createDefaultGame, createDungeonRaceDemo, createMiniMonopolyDemo } from './lib/defaults';
+  import { createMonopolyDemo } from './lib/monopoly';
   import AuthPanel from './components/AuthPanel.svelte';
   import InviteCard from './components/InviteCard.svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
@@ -122,7 +123,10 @@
   async function create(template: Template, advanced: boolean) {
     if (principal?.kind !== 'user') { message = t('dashboard.accountRequired'); return; }
     busy = true; message = '';
-    const definition = template === 'mini-monopoly' ? createMiniMonopolyDemo() : template === 'dungeon-race' ? createDungeonRaceDemo() : createDefaultGame();
+    const definition = template === 'mini-monopoly' ? createMiniMonopolyDemo()
+      : template === 'monopoly' ? createMonopolyDemo()
+      : template === 'dungeon-race' ? createDungeonRaceDemo()
+      : createDefaultGame();
     try { const game = await api.createDraft(definition); currentGame = await api.getDraft(game.id); view = advanced ? 'editor' : 'setup'; } catch (error) { showError(error); } finally { busy = false; }
   }
   async function finishSetup(game: GameDefinition) {

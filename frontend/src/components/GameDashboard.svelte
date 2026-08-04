@@ -2,7 +2,7 @@
   import type { CatalogGame } from '../lib/types';
   import { i18n } from '../lib/i18n.svelte';
 
-  export type Template = 'blank' | 'mini-monopoly' | 'dungeon-race';
+  export type Template = 'blank' | 'mini-monopoly' | 'monopoly' | 'dungeon-race';
 
   type Props = {
     displayName: string;
@@ -39,6 +39,9 @@
       <button onclick={() => onCreate('dungeon-race', advanced)} disabled={busy}>
         <strong>{t('dashboard.template.dungeonRace')}</strong><span>{t('dashboard.template.dungeonRaceHint')}</span>
       </button>
+      <button onclick={() => onCreate('monopoly', advanced)} disabled={busy}>
+        <strong>{t('dashboard.template.monopoly')}</strong><span>{t('dashboard.template.monopolyHint')}</span>
+      </button>
     </div>
   </section>
 
@@ -66,7 +69,7 @@
   header p:not(.eyebrow) { margin: 0; color: var(--text-muted); }
   .advanced { display: flex; gap: .5rem; align-items: center; padding: .65rem .8rem; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); white-space: nowrap; }
   h2 { margin: 0 0 1rem; font-size: 1.1rem; }
-  .templates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+  .templates { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
   .templates button { min-height: 142px; display: grid; align-content: center; gap: .55rem; padding: 1.1rem; border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(140deg, var(--surface-raised), var(--surface)); color: var(--text); text-align: left; cursor: pointer; }
   .templates button:hover { border-color: var(--accent); transform: translateY(-1px); }
   .templates span { color: var(--text-muted); line-height: 1.4; }

@@ -36,6 +36,8 @@
   "dashboard.template.miniMonopolyHint": "Недвижимость, аренда и решения",
   "dashboard.template.dungeonRace": "Гонка по подземелью",
   "dashboard.template.dungeonRaceHint": "Быстрая гонка с ресурсами",
+  "dashboard.template.monopoly": "Монополия",
+  "dashboard.template.monopolyHint": "Полное поле на 40 клеток: стройка, залог и тюрьма",
   "dashboard.draftListLabel": "Список черновиков",
   "dashboard.drafts": "Личные черновики",
   "dashboard.noDrafts": "Черновиков пока нет. Выберите шаблон, чтобы создать первую игру.",

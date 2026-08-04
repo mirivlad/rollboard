@@ -585,6 +585,31 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 			fmt.Sprintf("%s: %s", player.Name, picked.Title), nil)}
 		return append(events, s.executeActions(picked.Then, player, cell)...)
 
+	case "eliminate_player":
+		// Nothing in the engine ever set Bankrupt, which made the
+		// win-by-elimination path in advanceTurn unreachable and let a game run
+		// forever with a player on zero. Elimination is an explicit action so
+		// the definition decides what bankruptcy means, rather than the engine
+		// guessing from a resource going negative.
+		if player.Bankrupt {
+			return nil
+		}
+		player.Bankrupt = true
+		// An eliminated player owns nothing: their squares return to the bank
+		// so they can be bought again.
+		released := 0
+		for cellID, state := range s.State.CellStates {
+			if state.OwnerPlayerID == player.ID {
+				s.State.CellStates[cellID] = CellState{}
+				released++
+			}
+		}
+		events := []GameEvent{NewGameEvent("player_eliminated",
+			fmt.Sprintf("%s is out of the game (%d squares released)", player.Name, released), nil)}
+		// The turn order decides the winner once only one player is left.
+		s.checkForLastPlayerStanding()
+		return events
+
 	case "if_resource_ge":
 		amount := resolveAmount(a, cell.Fields)
 		if player.Resources[a.Resource] >= amount {
@@ -742,7 +767,12 @@ func (s *GameSession) resolveRouteChoice(edgeID string) ([]GameEvent, error) {
 	return events, nil
 }
 
-func (s *GameSession) advanceTurn() {
+// checkForLastPlayerStanding ends the game when eliminations have left one
+// player, wherever that happens: mid-action or at the end of a turn.
+func (s *GameSession) checkForLastPlayerStanding() bool {
+	if s.State.Status != "active" {
+		return true
+	}
 	activePlayers := 0
 	var lastActive string
 	for _, p := range s.State.Players {
@@ -751,11 +781,22 @@ func (s *GameSession) advanceTurn() {
 			lastActive = p.ID
 		}
 	}
-	if activePlayers <= 1 {
-		s.State.Status = "finished"
-		s.State.WinnerPlayerID = lastActive
-		s.State.Log = append(s.State.Log, NewGameEvent("game_over",
-			fmt.Sprintf("%s wins the game!", s.getPlayerByID(lastActive).Name), nil))
+	if activePlayers > 1 {
+		return false
+	}
+	s.State.Status = "finished"
+	s.State.WinnerPlayerID = lastActive
+	name := "Nobody"
+	if winner := s.getPlayerByID(lastActive); winner != nil {
+		name = winner.Name
+	}
+	s.State.Log = append(s.State.Log, NewGameEvent("game_over",
+		fmt.Sprintf("%s wins the game!", name), nil))
+	return true
+}
+
+func (s *GameSession) advanceTurn() {
+	if s.checkForLastPlayerStanding() {
 		return
 	}
 

@@ -36,6 +36,8 @@
   "dashboard.template.miniMonopolyHint": "Property, rent and choices",
   "dashboard.template.dungeonRace": "Dungeon Race",
   "dashboard.template.dungeonRaceHint": "Fast race with resources",
+  "dashboard.template.monopoly": "Monopoly",
+  "dashboard.template.monopolyHint": "Full 40-square board with building, mortgages and jail",
   "dashboard.draftListLabel": "Draft list",
   "dashboard.drafts": "Private drafts",
   "dashboard.noDrafts": "No drafts yet. Pick a template to create your first game.",
