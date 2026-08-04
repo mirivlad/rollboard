@@ -39,9 +39,8 @@ echo "--- vite build ---"
 npx vite build
 
 echo ""
-echo "=== Validating demo definitions ==="
 cd "$ROOT"
-./scripts/validate-demos.sh
+./scripts/validate-templates.sh
 
 echo ""
 echo "All checks passed!"

@@ -47,8 +47,22 @@ func (s *GameSession) canDeliver(player *PlayerState, items, resources map[strin
 		if amount < 1 {
 			return fmt.Errorf("resource amount must be positive")
 		}
-		if player.Resources[resource] < amount {
+		if s.available(player, resource) < amount {
 			return fmt.Errorf("%s no longer has %d %s", player.Name, amount, resource)
+		}
+	}
+	return nil
+}
+
+// canReceive reports whether a player has room for everything coming their way.
+//
+// Without it a trade could hand somebody more of a capped resource than they
+// can hold, and the difference would vanish: the giver pays in full, the
+// receiver keeps what fits.
+func (s *GameSession) canReceive(player *PlayerState, resources map[string]int) error {
+	for resource, amount := range resources {
+		if s.headroom(player, resource) < amount {
+			return fmt.Errorf("%s cannot hold %d more %s", player.Name, amount, resource)
 		}
 	}
 	return nil
@@ -62,8 +76,7 @@ func (s *GameSession) moveGoods(from, to *PlayerState, items, resources map[stri
 		to.Inventory[itemID] += count
 	}
 	for resource, amount := range resources {
-		from.Resources[resource] -= amount
-		to.Resources[resource] += amount
+		s.moveResource(from, to, resource, amount)
 	}
 }
 
@@ -167,6 +180,18 @@ func (s *GameSession) resolveTrade(answer string) ([]GameEvent, error) {
 		return []GameEvent{NewGameEvent("trade_failed", err.Error(), nil)}, nil
 	}
 	if err := s.canDeliver(recipient, offer.RequestItems, offer.RequestResources); err != nil {
+		s.State.PendingTrade = nil
+		s.State.PendingAction = nil
+		return []GameEvent{NewGameEvent("trade_failed", err.Error(), nil)}, nil
+	}
+	// Neither side may end up paying into a full pocket: the trade is refused
+	// outright rather than moving part of it.
+	if err := s.canReceive(recipient, offer.OfferResources); err != nil {
+		s.State.PendingTrade = nil
+		s.State.PendingAction = nil
+		return []GameEvent{NewGameEvent("trade_failed", err.Error(), nil)}, nil
+	}
+	if err := s.canReceive(proposer, offer.RequestResources); err != nil {
 		s.State.PendingTrade = nil
 		s.State.PendingAction = nil
 		return []GameEvent{NewGameEvent("trade_failed", err.Error(), nil)}, nil

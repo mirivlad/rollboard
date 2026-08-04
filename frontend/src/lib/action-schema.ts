@@ -20,7 +20,8 @@ export type FieldKind =
   | 'cell'       // another cell on the board
   | 'number'
   | 'text'
-  | 'target'     // current player / cell owner / bank
+  | 'payee'      // who a payment reaches — only the recipients the engine resolves
+  | 'cellOwner'  // who a square belongs to
   | 'boolean'    // stored as the string "true" or "false"
   | 'auctionAudience' // everyone at the table, or everyone but the acting player
   | 'formula'    // a computed amount
@@ -59,7 +60,7 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   { type: 'lose_resource', labelKey: 'action.lose_resource', group: 'resources', fields: [resource, amount, formula] },
   {
     type: 'transfer_resource', labelKey: 'action.transfer_resource', group: 'resources',
-    fields: [resource, amount, formula, { name: 'target', kind: 'target', labelKey: 'inspector.target' }],
+    fields: [resource, amount, formula, { name: 'target', kind: 'payee', labelKey: 'inspector.target', required: true }],
   },
   { type: 'if_resource_ge', labelKey: 'action.if_resource_ge', group: 'resources', fields: [resource, amount, formula, ...branches] },
   { type: 'if_stat_ge', labelKey: 'action.if_stat_ge', group: 'resources', fields: [resource, amount, formula, ...branches] },
@@ -67,11 +68,11 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   // --- items ---------------------------------------------------------------
   {
     type: 'grant_item', labelKey: 'action.grant_item', group: 'items',
-    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount],
+    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount, formula],
   },
   {
     type: 'remove_item', labelKey: 'action.remove_item', group: 'items',
-    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount],
+    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount, formula],
   },
   {
     type: 'equip_item', labelKey: 'action.equip_item', group: 'items',
@@ -87,13 +88,13 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   },
   {
     type: 'if_has_item', labelKey: 'action.if_has_item', group: 'items',
-    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount, ...branches],
+    fields: [{ name: 'field', kind: 'item', labelKey: 'inspector.item', required: true }, amount, formula, ...branches],
   },
 
   // --- the cell being landed on -------------------------------------------
   {
     type: 'set_cell_owner', labelKey: 'action.set_cell_owner', group: 'cell',
-    fields: [{ name: 'target', kind: 'target', labelKey: 'inspector.owner', required: true }],
+    fields: [{ name: 'target', kind: 'cellOwner', labelKey: 'inspector.owner', required: true }],
   },
   { type: 'set_cell_level', labelKey: 'action.set_cell_level', group: 'cell', fields: [amount, formula] },
   {
@@ -103,7 +104,7 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   { type: 'if_cell_unowned', labelKey: 'action.if_cell_unowned', group: 'cell', fields: branches },
   { type: 'if_cell_owned_by_current', labelKey: 'action.if_cell_owned_by_current', group: 'cell', fields: branches },
   { type: 'if_cell_owned_by_other', labelKey: 'action.if_cell_owned_by_other', group: 'cell', fields: branches },
-  { type: 'if_cell_level_ge', labelKey: 'action.if_cell_level_ge', group: 'cell', fields: [amount, ...branches] },
+  { type: 'if_cell_level_ge', labelKey: 'action.if_cell_level_ge', group: 'cell', fields: [amount, formula, ...branches] },
   { type: 'if_cell_mortgaged', labelKey: 'action.if_cell_mortgaged', group: 'cell', fields: branches },
 
   // --- the player ----------------------------------------------------------
@@ -117,7 +118,7 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   // --- the board -----------------------------------------------------------
   {
     type: 'reveal_cells', labelKey: 'action.reveal_cells', group: 'board',
-    fields: [amount, { name: 'to', kind: 'cell', labelKey: 'inspector.destination' }],
+    fields: [amount, formula, { name: 'to', kind: 'cell', labelKey: 'inspector.destination' }],
   },
   {
     type: 'if_cells_ge', labelKey: 'action.if_cells_ge', group: 'board',
@@ -147,6 +148,7 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
     fields: [
       { name: 'resource', kind: 'resource', labelKey: 'inspector.bidCurrency', required: true },
       amount,
+      formula,
       { name: 'increment', kind: 'number', labelKey: 'inspector.increment' },
       { name: 'target', kind: 'auctionAudience', labelKey: 'inspector.bidders' },
       { name: 'title', kind: 'text', labelKey: 'inspector.title' },
@@ -165,6 +167,23 @@ export const ACTION_GROUPS = ['resources', 'items', 'cell', 'player', 'board', '
 
 export function schemaFor(type: string): ActionSchema | undefined {
   return ACTION_SCHEMAS.find((schema) => schema.type === type);
+}
+
+/**
+ * The next free option ID for a list.
+ *
+ * Naming an option after the length of the list produced a duplicate as soon
+ * as one was removed and another added: option_1, option_2, option_3, delete
+ * the second, add one — and the new option is option_3 as well. The engine
+ * resolves the first match, so the second one could never be chosen and
+ * nothing said why.
+ */
+export function nextOptionId(options: { id?: string }[]): string {
+  const used = new Set(options.map((option) => option.id));
+  for (let n = 1; ; n += 1) {
+    const candidate = `option_${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
 }
 
 /** A new action of this type, with only the fields the schema declares. */

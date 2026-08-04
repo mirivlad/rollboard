@@ -265,3 +265,138 @@ func TestValidateAuctionNeedsACurrencyAndAPrize(t *testing.T) {
 		t.Fatalf("a valid auction was rejected: %v", err)
 	}
 }
+
+func TestValidateRejectsFormulasThatCanOnlyBeWrong(t *testing.T) {
+	// resolveTerm answers zero for anything it does not understand, so every
+	// one of these used to publish cleanly and then quietly do nothing.
+	cases := map[string]struct {
+		action ActionDefinition
+		want   string
+	}{
+		"unknown kind": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Base: &AmountTerm{Kind: "wobble"}}},
+			"not a kind of value",
+		},
+		"unknown resource": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Base: &AmountTerm{Kind: "stat", Name: "charisma"}}},
+			`no resource "charisma"`,
+		},
+		"nameless stat": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Base: &AmountTerm{Kind: "stat"}}},
+			"needs a name",
+		},
+		"unknown field": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Base: &AmountTerm{Kind: "field", Name: "rnet"}}},
+			`field "rnet"`,
+		},
+		"cells without a query": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Base: &AmountTerm{Kind: "cells"}}},
+			"needs a query",
+		},
+		"query inside a formula": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{
+				Base: &AmountTerm{Kind: "cells", Query: &CellQuery{Type: "railrod"}}}},
+			`unknown cell type "railrod"`,
+		},
+		"impossible clamps": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{
+				Base: &AmountTerm{Kind: "const", Value: 5}, Min: intPtr(100), Max: intPtr(10)}},
+			"can never hold",
+		},
+		"always negative": {
+			ActionDefinition{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{
+				Base: &AmountTerm{Kind: "const", Value: 5}, Minus: &AmountTerm{Kind: "const", Value: 15}}},
+			"cannot be negative",
+		},
+		"undeclared resource": {
+			ActionDefinition{Type: "gain_resource", Resource: "credits", Amount: intPtr(5)},
+			`no resource "credits"`,
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateDefinition(definitionWithAction(testCase.action))
+			if err == nil {
+				t.Fatal("published a formula that can only be wrong")
+			}
+			joined := strings.Join(err.Errors, "; ")
+			if !strings.Contains(joined, testCase.want) {
+				t.Fatalf("errors = %q, want something mentioning %q", joined, testCase.want)
+			}
+			// The author has to be able to find the action being complained
+			// about; "unknown cell type" on its own names nothing.
+			if !strings.Contains(joined, "cell 'blue_a' onLand action[0]") {
+				t.Fatalf("error gives no path to the action: %q", joined)
+			}
+		})
+	}
+}
+
+func TestValidateNamesThePathIntoNestedActions(t *testing.T) {
+	action := ActionDefinition{
+		Type: "if_cell_unowned",
+		Then: []ActionDefinition{{
+			Type: "offer_choice", Title: "Pick",
+			Options: []ActionOption{{ID: "a", Title: "A", Then: []ActionDefinition{
+				{Type: "gain_resource", Resource: "money", Formula: &AmountFormula{Times: &AmountTerm{Kind: "cells", Query: &CellQuery{Owner: "landlord"}}}},
+			}}},
+		}},
+	}
+	err := ValidateDefinition(definitionWithAction(action))
+	if err == nil {
+		t.Fatal("a broken formula three levels down was published")
+	}
+	want := "cell 'blue_a' onLand action[0].then[0].options[0].then[0].formula.times.query"
+	if !strings.Contains(strings.Join(err.Errors, "; "), want) {
+		t.Fatalf("errors = %v, want a path like %q", err.Errors, want)
+	}
+}
+
+func TestValidateRejectsDuplicateOptionIDs(t *testing.T) {
+	// The editor named options after the length of the list, so adding,
+	// removing and adding again produced two options with one ID — and the
+	// engine only ever resolves the first.
+	action := ActionDefinition{
+		Type: "offer_choice", Title: "Pick",
+		Options: []ActionOption{
+			{ID: "option_1", Title: "First"},
+			{ID: "option_3", Title: "Second"},
+			{ID: "option_3", Title: "Third"},
+		},
+	}
+	err := ValidateDefinition(definitionWithAction(action))
+	if err == nil || !strings.Contains(strings.Join(err.Errors, "; "), "used twice") {
+		t.Fatalf("duplicate option ids were accepted: %v", err)
+	}
+}
+
+func TestValidateAcceptsAComputedNumberOfTurns(t *testing.T) {
+	// The editor offered a formula for skip_turns and the validator refused it,
+	// so the control was there and could not be used.
+	action := ActionDefinition{Type: "skip_turns", Formula: &AmountFormula{Base: &AmountTerm{Kind: "const", Value: 2}}}
+	if err := ValidateDefinition(definitionWithAction(action)); err != nil {
+		t.Fatalf("a computed number of turns was rejected: %v", err)
+	}
+}
+
+func TestValidateRejectsRecipientsTheEngineCannotResolve(t *testing.T) {
+	for _, target := range []string{"", "current", "bank", "none"} {
+		action := ActionDefinition{Type: "transfer_resource", Resource: "money", Target: target, Amount: intPtr(10)}
+		if err := ValidateDefinition(definitionWithAction(action)); err == nil {
+			t.Fatalf("transfer to %q was published, and would have done nothing at all", target)
+		}
+	}
+	good := ActionDefinition{Type: "transfer_resource", Resource: "money", Target: "owner", Amount: intPtr(10)}
+	if err := ValidateDefinition(definitionWithAction(good)); err != nil {
+		t.Fatalf("paying the cell owner was rejected: %v", err)
+	}
+}
+
+func TestValidateRejectsImpossibleResourceRules(t *testing.T) {
+	definition := propertyDefinition()
+	min, max := 200, 100
+	definition.Rules.Resources["money"] = ResourceRule{Initial: 500, Min: &min, Max: &max}
+	if err := ValidateDefinition(definition); err == nil {
+		t.Fatal("a resource whose minimum is above its maximum was published")
+	}
+}

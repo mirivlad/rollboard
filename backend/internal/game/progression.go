@@ -32,10 +32,10 @@ func (s *GameSession) applyProgression(player *PlayerState) []GameEvent {
 		if player.Resources[rule.ExperienceResource] < rule.Thresholds[index] {
 			break
 		}
-		player.Resources[rule.LevelResource] = level + 1
+		s.setResource(player, rule.LevelResource, level+1)
 		message := fmt.Sprintf("%s reached level %d", player.Name, level+1)
 		if rule.PointsResource != "" && rule.PointsPerLevel > 0 {
-			player.Resources[rule.PointsResource] += rule.PointsPerLevel
+			s.addResource(player, rule.PointsResource, rule.PointsPerLevel)
 			message = fmt.Sprintf("%s reached level %d and gained %d %s",
 				player.Name, level+1, rule.PointsPerLevel, rule.PointsResource)
 		}

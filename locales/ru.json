@@ -126,7 +126,6 @@
   "action.log_message": "Записать в журнал",
   "target.current": "Текущий игрок",
   "target.owner": "Владелец клетки",
-  "target.bank": "Банк",
   "condition.always": "Всегда",
   "condition.dice_total_even": "Сумма кубиков чётная",
   "condition.dice_total_odd": "Сумма кубиков нечётная",

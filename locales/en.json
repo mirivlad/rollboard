@@ -126,7 +126,6 @@
   "action.log_message": "Log Message",
   "target.current": "Current Player",
   "target.owner": "Cell Owner",
-  "target.bank": "Bank",
   "condition.always": "Always",
   "condition.dice_total_even": "Dice Total Even",
   "condition.dice_total_odd": "Dice Total Odd",

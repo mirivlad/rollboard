@@ -281,7 +281,7 @@ func TestValidationRejectsMalformedNewActions(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			errs := validateAction(testCase.action)
+			errs := validateAction(testCase.action, "action", actionContext{})
 			if len(errs) == 0 {
 				t.Fatalf("validateAction(%#v) accepted it", testCase.action)
 			}

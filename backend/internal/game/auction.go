@@ -322,11 +322,7 @@ func (s *GameSession) finishAuction() []GameEvent {
 		return []GameEvent{NewGameEvent("auction_no_sale",
 			fmt.Sprintf("%s — the winning bidder is gone", au.Title), nil)}
 	}
-	paid := au.HighBid
-	if winner.Resources[au.Resource] < paid {
-		paid = winner.Resources[au.Resource]
-	}
-	winner.Resources[au.Resource] -= paid
+	paid := s.takeResource(winner, au.Resource, au.HighBid)
 	events := []GameEvent{NewGameEvent("auction_won",
 		fmt.Sprintf("%s won %s for %d %s", winner.Name, au.Title, paid, au.Resource),
 		map[string]any{"playerId": winner.ID, "amount": paid, "cellId": au.CellID})}

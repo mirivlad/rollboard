@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ActionDefinition, AmountFormula, CellDefinition, CellQuery, RuleSet } from '../lib/types';
-  import { ACTION_GROUPS, ACTION_SCHEMAS, blankAction, schemaFor, type ActionField } from '../lib/action-schema';
+  import { ACTION_GROUPS, ACTION_SCHEMAS, blankAction, nextOptionId, schemaFor, type ActionField } from '../lib/action-schema';
   import { i18n } from '../lib/i18n.svelte';
   import FormulaEditor from './FormulaEditor.svelte';
   import CellQueryEditor from './CellQueryEditor.svelte';
@@ -71,7 +71,7 @@
 
   function addOption(index: number) {
     const options = [...(actions[index].options ?? [])];
-    options.push({ id: `option_${options.length + 1}`, title: '', then: [] });
+    options.push({ id: nextOptionId(options), title: '', then: [] });
     update(index, { options });
   }
 
@@ -191,12 +191,19 @@
                   <option value="">{t('inspector.choose')}</option>
                   {#each cells as cell (cell.id)}<option value={cell.id}>{cell.title || cell.id}</option>{/each}
                 </select>
-              {:else if field.kind === 'target'}
+              {:else if field.kind === 'payee'}
+                <!-- Only the recipients the engine can actually resolve. The
+                     shared list used to offer "bank" and "nobody" here, and
+                     both looked for a player of that name, found none and left
+                     the payment undone with nothing in the log. -->
+                <select value={value(action, field)} onchange={(e) => setField(index, field, (e.target as HTMLSelectElement).value)}>
+                  <option value="">{t('inspector.choose')}</option>
+                  <option value="owner">{t('target.owner')}</option>
+                </select>
+              {:else if field.kind === 'cellOwner'}
                 <select value={value(action, field)} onchange={(e) => setField(index, field, (e.target as HTMLSelectElement).value)}>
                   <option value="">{t('inspector.choose')}</option>
                   <option value="current">{t('target.current')}</option>
-                  <option value="owner">{t('target.owner')}</option>
-                  <option value="bank">{t('target.bank')}</option>
                   <option value="none">{t('target.none')}</option>
                 </select>
               {:else if field.kind === 'auctionAudience'}

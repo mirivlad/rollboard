@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ACTION_GROUPS, ACTION_SCHEMAS, blankAction, schemaFor } from './action-schema';
+import { ACTION_GROUPS, ACTION_SCHEMAS, blankAction, nextOptionId, schemaFor } from './action-schema';
 import en from '../../../locales/en.json';
 import ru from '../../../locales/ru.json';
 
@@ -119,5 +119,113 @@ describe('schemaFor', () => {
   it('resolves a known type and returns nothing for an unknown one', () => {
     expect(schemaFor('grant_item')?.group).toBe('items');
     expect(schemaFor('not_a_real_action')).toBeUndefined();
+  });
+});
+
+/**
+ * Which action types the engine resolves an amount for.
+ *
+ * Read from the engine's own source, because "the editor covers everything the
+ * engine can do" was only ever checked at the level of action names. Underneath
+ * that, five actions accepted a computed amount that the editor never offered,
+ * and one offered a computed amount the backend refused to publish.
+ */
+function enginePayload(): { resolvesAmount: Set<string> } {
+  const sources = new Map<string, string>();
+  for (const file of readdirSync(ENGINE_DIR)) {
+    if (!file.endsWith('.go') || file.endsWith('_test.go')) continue;
+    sources.set(file, readFileSync(join(ENGINE_DIR, file), 'utf8'));
+  }
+  const all = [...sources.values()].join('\n');
+
+  // Helpers that resolve an amount themselves, so a case that delegates to one
+  // still counts: reveal_cells and start_auction never mention amountFor in the
+  // dispatch table, but both accept a formula.
+  const resolvers = new Set<string>();
+  for (const match of all.matchAll(/func \(s \*GameSession\) (\w+)\([^)]*\)[^{]*\{([\s\S]*?)\n\}/g)) {
+    if (/s\.amountFor(OrOne)?\(/.test(match[2])) resolvers.add(match[1]);
+  }
+
+  const engine = sources.get('engine.go') ?? '';
+  const dispatch = engine.slice(engine.indexOf('func (s *GameSession) executeOneAction('));
+  const body = dispatch.slice(0, dispatch.indexOf('\nfunc ', 1));
+
+  const resolvesAmount = new Set<string>();
+  const cases = body.split(/^\tcase /m).slice(1);
+  for (const block of cases) {
+    const header = block.slice(0, block.indexOf(':'));
+    const types = [...header.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    const code = block.slice(block.indexOf(':') + 1);
+    const usesAmount =
+      /s\.amountFor(OrOne)?\(/.test(code) ||
+      [...resolvers].some((name) => new RegExp(`s\\.${name}\\(`).test(code));
+    if (usesAmount) for (const type of types) resolvesAmount.add(type);
+  }
+  return { resolvesAmount };
+}
+
+/** The fields ActionDefinition actually carries, from its JSON tags. */
+function engineActionFields(): Set<string> {
+  const source = readFileSync(join(ENGINE_DIR, 'definition.go'), 'utf8');
+  const struct = source.slice(source.indexOf('type ActionDefinition struct {'));
+  const body = struct.slice(0, struct.indexOf('\n}'));
+  return new Set([...body.matchAll(/json:"([a-zA-Z]+)/g)].map((m) => m[1]));
+}
+
+describe('the editor offers what the engine reads', () => {
+  const { resolvesAmount } = enginePayload();
+
+  it('finds the amount-resolving actions at all', () => {
+    expect(resolvesAmount.size).toBeGreaterThan(8);
+    expect(resolvesAmount).toContain('gain_resource');
+  });
+
+  it('offers a computed amount wherever the engine resolves one', () => {
+    const missing = [...resolvesAmount].filter((type) => {
+      const schema = schemaFor(type);
+      return schema && !schema.fields.some((field) => field.kind === 'formula');
+    });
+    expect(missing, `the engine computes an amount for these but the editor has no formula: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('offers a computed amount nowhere else', () => {
+    // A control the engine ignores is worse than a missing one: the author
+    // fills it in and the game quietly does something else.
+    const extra = ACTION_SCHEMAS
+      .filter((schema) => schema.fields.some((field) => field.kind === 'formula'))
+      .map((schema) => schema.type)
+      .filter((type) => !resolvesAmount.has(type));
+    expect(extra, `the editor offers a formula the engine never reads: ${extra.join(', ')}`).toEqual([]);
+  });
+
+  it('writes only fields ActionDefinition carries', () => {
+    const known = engineActionFields();
+    expect(known.size).toBeGreaterThan(10);
+    for (const schema of ACTION_SCHEMAS) {
+      for (const field of schema.fields) {
+        expect(known, `${schema.type}.${field.name} is not a field of ActionDefinition`).toContain(field.name);
+      }
+    }
+  });
+});
+
+describe('nextOptionId', () => {
+  it('fills the first free slot, so add-remove-add cannot collide', () => {
+    // The exact sequence that used to produce two option_3s: three options,
+    // delete the middle one, add another.
+    let options = [{ id: 'option_1' }, { id: 'option_2' }, { id: 'option_3' }];
+    options = options.filter((option) => option.id !== 'option_2');
+    const added = nextOptionId(options);
+    expect(added).toBe('option_2');
+    expect(options.some((option) => option.id === added)).toBe(false);
+  });
+
+  it('keeps going past a gap-free list', () => {
+    expect(nextOptionId([{ id: 'option_1' }, { id: 'option_2' }])).toBe('option_3');
+    expect(nextOptionId([])).toBe('option_1');
+  });
+
+  it('ignores ids the author renamed', () => {
+    expect(nextOptionId([{ id: 'buy' }, { id: 'walk_away' }])).toBe('option_1');
   });
 });

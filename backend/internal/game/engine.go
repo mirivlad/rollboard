@@ -252,7 +252,7 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 			nextEdge := available[0]
 			if nextEdge.Condition.Type == "pay_resource" {
 				if nextEdge.Condition.Resource != "" && nextEdge.Condition.Amount != nil {
-					player.Resources[nextEdge.Condition.Resource] -= *nextEdge.Condition.Amount
+					s.takeResource(player, nextEdge.Condition.Resource, *nextEdge.Condition.Amount)
 				}
 			}
 			nextCell := s.Definition.Board.getCellByID(nextEdge.To)
@@ -317,7 +317,7 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 		nextEdge := available[0]
 		if nextEdge.Condition.Type == "pay_resource" {
 			if nextEdge.Condition.Resource != "" && nextEdge.Condition.Amount != nil {
-				player.Resources[nextEdge.Condition.Resource] -= *nextEdge.Condition.Amount
+				s.takeResource(player, nextEdge.Condition.Resource, *nextEdge.Condition.Amount)
 			}
 		}
 		events = append(events, NewGameEvent("move_ambiguous",
@@ -367,10 +367,11 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 	if passedStart {
 		bonus := s.Definition.Rules.StartBonus
 		res := s.Definition.Rules.StartBonusResource
-		if res != "" && bonus != 0 {
-			player.Resources[res] += bonus
+		if res != "" && bonus > 0 {
+			granted := s.addResource(player, res, bonus)
 			events = append(events, NewGameEvent("start_bonus",
-				fmt.Sprintf("%s passed START and received %d %s", player.Name, bonus, res), nil))
+				fmt.Sprintf("%s passed START and received %d %s%s", player.Name, granted, res,
+					shortfallNote(bonus, granted, res)), nil))
 		}
 	}
 
@@ -455,70 +456,72 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 
 	case "gain_resource":
 		res := a.Resource
-		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
-		player.Resources[res] += amount
+		amount, refusal := s.quantityFor(a, player, cell)
+		if refusal != nil {
+			return refusal
+		}
+		granted := s.addResource(player, res, amount)
 		return []GameEvent{NewGameEvent("gain_resource",
-			fmt.Sprintf("%s gained %d %s", player.Name, amount, res), nil)}
+			fmt.Sprintf("%s gained %d %s%s", player.Name, granted, res, shortfallNote(amount, granted, res)), nil)}
 
 	case "lose_resource":
 		res := a.Resource
-		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
-		if player.Resources[res] > amount {
-			player.Resources[res] -= amount
-		} else {
-			player.Resources[res] = 0
+		amount, refusal := s.quantityFor(a, player, cell)
+		if refusal != nil {
+			return refusal
 		}
+		taken := s.takeResource(player, res, amount)
 		return []GameEvent{NewGameEvent("lose_resource",
-			fmt.Sprintf("%s lost %d %s", player.Name, amount, res), nil)}
+			fmt.Sprintf("%s lost %d %s%s", player.Name, taken, res, shortfallNote(amount, taken, res)), nil)}
 
 	case "transfer_resource":
 		res := a.Resource
-		amount := s.amountFor(a, player, cell)
 		if res == "" {
 			return nil
 		}
-		var targetPlayer *PlayerState
-		switch a.Target {
-		case "owner":
-			cs := s.State.CellStates[cell.ID]
-			if cs.OwnerPlayerID != "" {
-				targetPlayer = s.getPlayerByID(cs.OwnerPlayerID)
-			}
-		default:
-			targetPlayer = s.getPlayerByID(a.Target)
+		amount, refusal := s.quantityFor(a, player, cell)
+		if refusal != nil {
+			return refusal
+		}
+		targetPlayer, err := s.transferRecipient(a.Target, player, cell)
+		if err != nil {
+			// A recipient the engine cannot resolve used to mean the action
+			// silently did nothing, which reads in the log as a rent that was
+			// never due.
+			return []GameEvent{NewGameEvent("invalid_action",
+				fmt.Sprintf("transfer_resource: %v", err), nil)}
 		}
 		if targetPlayer == nil || targetPlayer.Bankrupt {
 			return nil
 		}
-		actual := amount
-		if player.Resources[res] < actual {
-			actual = player.Resources[res]
-		}
-		player.Resources[res] -= actual
-		targetPlayer.Resources[res] += actual
+		actual := s.moveResource(player, targetPlayer, res, amount)
 		return []GameEvent{NewGameEvent("transfer_resource",
-			fmt.Sprintf("%s paid %d %s to %s", player.Name, actual, res, targetPlayer.Name), nil)}
+			fmt.Sprintf("%s paid %d %s to %s%s", player.Name, actual, res, targetPlayer.Name,
+				shortfallNote(amount, actual, res)), nil)}
 
 	case "set_cell_owner":
 		// Assigning an owner resets buildings and mortgage state, because a
 		// property changing hands must not carry the previous owner's
 		// investment with it.
-		switch a.Target {
-		case "current":
-			s.State.CellStates[cell.ID] = CellState{OwnerPlayerID: player.ID}
-		case "none":
-			s.State.CellStates[cell.ID] = CellState{}
-		default:
-			s.State.CellStates[cell.ID] = CellState{OwnerPlayerID: a.Target}
+		ownerID, err := s.cellOwnerFor(a.Target, player)
+		if err != nil {
+			return []GameEvent{NewGameEvent("invalid_action",
+				fmt.Sprintf("set_cell_owner: %v", err), nil)}
 		}
+		s.State.CellStates[cell.ID] = CellState{OwnerPlayerID: ownerID}
+		if ownerID == "" {
+			return []GameEvent{NewGameEvent("set_cell_owner",
+				fmt.Sprintf("%s is back with the bank", cell.Title), nil)}
+		}
+		owner := s.getPlayerByID(ownerID)
 		return []GameEvent{NewGameEvent("set_cell_owner",
-			fmt.Sprintf("%s now owns %s", player.Name, cell.Title), nil)}
+			fmt.Sprintf("%s now owns %s", owner.Name, cell.Title), nil)}
 
 	case "offer_choice":
 		s.State.PendingAction = &PendingAction{
@@ -831,10 +834,10 @@ func (s *GameSession) resolveRouteChoice(edgeID string) ([]GameEvent, error) {
 			amt = *chosenEdge.Condition.Amount
 		}
 		if chosenEdge.Condition.Resource != "" {
-			if player.Resources[chosenEdge.Condition.Resource] < amt {
+			if s.available(player, chosenEdge.Condition.Resource) < amt {
 				return nil, fmt.Errorf("insufficient %s for pay_resource", chosenEdge.Condition.Resource)
 			}
-			player.Resources[chosenEdge.Condition.Resource] -= amt
+			s.takeResource(player, chosenEdge.Condition.Resource, amt)
 		}
 	}
 

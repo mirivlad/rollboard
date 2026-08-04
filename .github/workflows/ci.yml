@@ -64,6 +64,15 @@ jobs:
         working-directory: backend
         run: go vet ./...
 
+      # Node loads the TypeScript templates directly, so validating what a new
+      # author actually starts from needs no bundler and no npm install.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Validate the bundled templates
+        run: ./scripts/validate-templates.sh
+
       - name: Test
         env:
           # Services are provided by the job, so the script must not try to
