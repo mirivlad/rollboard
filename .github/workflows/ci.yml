@@ -120,11 +120,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # arm64 is emulated on the amd64 runner, so it needs binfmt registered.
-      - uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
-
+      # No QEMU: the Dockerfile cross-compiles and its final stage only copies
+      # files, so nothing ever executes under the target architecture.
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
