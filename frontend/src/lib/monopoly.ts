@@ -1,4 +1,11 @@
-import type { ActionDefinition, CellDefinition, EdgeDefinition, GameDefinition } from './types';
+import type {
+  ActionDefinition,
+  AmountFormula,
+  CellDefinition,
+  CellQuery,
+  EdgeDefinition,
+  GameDefinition,
+} from './types';
 
 /**
  * A full 40-square property game, expressed entirely as data.
@@ -8,17 +15,19 @@ import type { ActionDefinition, CellDefinition, EdgeDefinition, GameDefinition }
  * bankruptcy — is a `GameDefinition`. The engine contains no notion of a
  * "property", a "house" or a "jail"; it only executes actions.
  *
- * What it deliberately does not do, because the engine cannot express it yet:
+ * The three rules that used to be impossible here are the reason cell queries
+ * and auctions exist, and they are written with the same actions any author
+ * gets from the editor:
  *
- *   - Colour-group monopolies. Rent cannot depend on whether the same player
- *     owns every square of a group, because no action can query another cell's
- *     state. Rent here scales with buildings alone.
- *   - Trading between players, and auctions. Both need a negotiation between
- *     two players, and a pending action is addressed to exactly one.
- *   - Station rent scaling with how many stations you own. Same missing
- *     cross-cell query as monopolies.
+ *   - A colour group pays double once one player owns all of it: a query for
+ *     "cells in this group the owner holds" compared against "cells in this
+ *     group", so adding a square to a group needs no change here.
+ *   - Station rent multiplies by how many stations the landlord owns.
+ *   - Declining to buy sends the square to auction, and everybody bids.
  *
- * Those are documented in docs/ARCHITECTURE.md as the next engine primitives.
+ * What it still does not do: nothing in the game reads the dice after the
+ * move, so utility rent scales with how many utilities the owner holds rather
+ * than with the roll.
  */
 
 const GO_SALARY = 200;
@@ -29,42 +38,73 @@ function action(type: string, extra: Partial<ActionDefinition> = {}): ActionDefi
   return { type, ...extra };
 }
 
+/** The rent the landlord is owed, however it was worked out. */
+function payRent(formula: AmountFormula): ActionDefinition {
+  // A player who cannot cover the rent is out. Without this the engine floors
+  // money at zero and the game never ends.
+  return action('if_resource_ge', {
+    resource: 'money',
+    formula,
+    then: [action('transfer_resource', { resource: 'money', formula, target: 'owner' })],
+    else: [
+      action('transfer_resource', { resource: 'money', formula, target: 'owner' }),
+      action('log_message', { title: 'Cannot cover the rent.' }),
+      action('eliminate_player'),
+    ],
+  });
+}
+
+const fromField = (name: string): AmountFormula => ({ base: { kind: 'field', name } });
+
+/** Every square in the same colour group as this one. */
+const sameGroup = (owner?: CellQuery['owner']): CellQuery => ({
+  type: 'property',
+  field: 'group',
+  sameAsCell: true,
+  ...(owner ? { owner } : {}),
+});
+
 /**
- * Rent that grows with the buildings on the square.
+ * Rent that grows with the buildings on the square, and doubles on a bare
+ * square whose whole colour group has one owner.
  *
- * Written as a descending chain of level checks because the engine has no
+ * The monopoly check compares two queries rather than a count against a
+ * number: "the squares in this group the landlord owns" against "the squares
+ * in this group". Adding a fourth square to a group therefore changes nothing
+ * here — the rule is written in terms of the board, not of a total somebody
+ * has to remember to update.
+ *
+ * The tiers are a descending chain of level checks because the engine has no
  * table lookup: the first level that matches wins, so the order matters.
  */
 function rentByLevel(): ActionDefinition {
-  // A player who cannot cover the rent is out. Without this the engine floors
-  // money at zero and the game never ends.
-  const payRent = (field: string) =>
-    action('if_resource_ge', {
-      resource: 'money',
-      amountField: field,
-      then: [action('transfer_resource', { resource: 'money', amountField: field, target: 'owner' })],
-      else: [
-        action('transfer_resource', { resource: 'money', amountField: field, target: 'owner' }),
-        action('log_message', { title: 'Cannot cover the rent.' }),
-        action('eliminate_player'),
-      ],
-    });
-
   return action('if_cell_mortgaged', {
     then: [action('log_message', { title: 'The square is mortgaged, so no rent is due.' })],
     else: [
       action('if_cell_level_ge', {
         amount: 5,
-        then: [payRent('rentHotel')],
+        then: [payRent(fromField('rentHotel'))],
         else: [
           action('if_cell_level_ge', {
             amount: 3,
-            then: [payRent('rent3')],
+            then: [payRent(fromField('rent3'))],
             else: [
               action('if_cell_level_ge', {
                 amount: 1,
-                then: [payRent('rent1')],
-                else: [payRent('rent')],
+                then: [payRent(fromField('rent1'))],
+                else: [
+                  action('if_cells_ge', {
+                    // Owner here is the landlord, not the visitor standing on
+                    // the square: it is their holdings that set the rent.
+                    query: sameGroup('cellOwner'),
+                    formula: { base: { kind: 'cells', query: sameGroup() } },
+                    then: [
+                      action('log_message', { title: 'One owner holds the whole colour group: rent is doubled.' }),
+                      payRent({ base: { kind: 'field', name: 'rent' }, times: { kind: 'const', value: 2 } }),
+                    ],
+                    else: [payRent(fromField('rent'))],
+                  }),
+                ],
               }),
             ],
           }),
@@ -74,33 +114,86 @@ function rentByLevel(): ActionDefinition {
   });
 }
 
+/**
+ * Rent for a square whose value is how many of its kind the landlord holds:
+ * stations and utilities.
+ */
+function rentByHoldings(type: string): ActionDefinition {
+  return action('if_cell_mortgaged', {
+    then: [action('log_message', { title: 'The square is mortgaged, so no rent is due.' })],
+    else: [
+      payRent({
+        base: { kind: 'field', name: 'rent' },
+        times: { kind: 'cells', query: { type, owner: 'cellOwner' } },
+      }),
+    ],
+  });
+}
+
+/**
+ * The square goes under the hammer.
+ *
+ * This is the rule a two-player trade could never cover: everybody at the
+ * table gets to bid, in turn, and the pending action moves round with them.
+ */
+function auctionThisSquare(): ActionDefinition {
+  return action('start_auction', {
+    resource: 'money',
+    // Bidding opens at half the face value, so a square nobody wants at full
+    // price still finds a buyer.
+    amountField: 'mortgageValue',
+    increment: 10,
+    then: [action('set_cell_owner', { target: 'current' })],
+    else: [action('log_message', { title: 'Nobody bid: the square stays with the bank.' })],
+  });
+}
+
+/**
+ * The offer made on an unowned square: buy it at face value, or let the table
+ * bid for it.
+ */
+function buyOrAuction(): ActionDefinition {
+  return action('if_resource_ge', {
+    resource: 'money',
+    amountField: 'cost',
+    then: [
+      action('offer_choice', {
+        title: 'Buy this square?',
+        options: [
+          {
+            id: 'buy',
+            title: 'Buy it',
+            then: [
+              action('lose_resource', { resource: 'money', amountField: 'cost' }),
+              action('set_cell_owner', { target: 'current' }),
+            ],
+          },
+          { id: 'pass', title: 'Leave it (it goes to auction)', then: [auctionThisSquare()] },
+        ],
+      }),
+    ],
+    else: [
+      action('log_message', { title: 'Not enough money to buy this square, so it goes to auction.' }),
+      auctionThisSquare(),
+    ],
+  });
+}
+
+/** A station or a utility: bought the same way, rented by the query. */
+function holdingActions(type: string): ActionDefinition[] {
+  return [
+    action('if_cell_unowned', {
+      then: [buyOrAuction()],
+      else: [action('if_cell_owned_by_other', { then: [rentByHoldings(type)], else: [] })],
+    }),
+  ];
+}
+
 /** Landing on a square somebody may own, or may want to buy. */
 function propertyActions(): ActionDefinition[] {
   return [
     action('if_cell_unowned', {
-      then: [
-        action('if_resource_ge', {
-          resource: 'money',
-          amountField: 'cost',
-          then: [
-            action('offer_choice', {
-              title: 'Buy this square?',
-              options: [
-                {
-                  id: 'buy',
-                  title: 'Buy it',
-                  then: [
-                    action('lose_resource', { resource: 'money', amountField: 'cost' }),
-                    action('set_cell_owner', { target: 'current' }),
-                  ],
-                },
-                { id: 'pass', title: 'Leave it', then: [] },
-              ],
-            }),
-          ],
-          else: [action('log_message', { title: 'Not enough money to buy this square.' })],
-        }),
-      ],
+      then: [buyOrAuction()],
       else: [
         action('if_cell_owned_by_other', {
           then: [rentByLevel()],
@@ -212,8 +305,16 @@ function chanceActions(): ActionDefinition[] {
         },
         {
           id: 'street_repairs',
-          title: 'Street repairs: pay 120',
-          then: [action('lose_resource', { resource: 'money', amount: 120 })],
+          title: 'Street repairs: pay 40 for every square you have built on',
+          then: [
+            // A card that reads the whole board rather than charging a flat
+            // fee: the loop visits each built square the player owns.
+            action('for_each_cell', {
+              query: { type: 'property', owner: 'current', minLevel: 1 },
+              then: [action('lose_resource', { resource: 'money', amount: 40 })],
+              else: [action('log_message', { title: 'Nothing built, nothing to repair.' })],
+            }),
+          ],
         },
         {
           id: 'beauty_contest',
@@ -231,53 +332,62 @@ type Street = {
   colour: string;
   cost: number;
   rent: number;
+  /**
+   * The colour group, as a name rather than the hex colour.
+   *
+   * Queries compare field values as text, and an author looking at the
+   * dropdown in the editor should see "brown", not "#8B4513".
+   */
+  group: string;
 };
 
+type Special = { id: string; title: string; kind: string; cost?: number; rent?: number };
+
 /** The board, walking clockwise from GO. */
-const STREETS: (Street | { id: string; title: string; kind: string })[] = [
+const STREETS: (Street | Special)[] = [
   { id: 'go', title: 'GO', kind: 'go' },
-  { id: 'old_kent', title: 'Old Kent Road', colour: '#8B4513', cost: 60, rent: 4 },
+  { id: 'old_kent', title: 'Old Kent Road', colour: '#8B4513', cost: 60, rent: 4 , group: 'brown' },
   { id: 'chance_1', title: 'Chance', kind: 'chance' },
-  { id: 'whitechapel', title: 'Whitechapel Road', colour: '#8B4513', cost: 60, rent: 8 },
+  { id: 'whitechapel', title: 'Whitechapel Road', colour: '#8B4513', cost: 60, rent: 8 , group: 'brown' },
   { id: 'income_tax', title: 'Income Tax', kind: 'tax' },
-  { id: 'kings_cross', title: "King's Cross Station", colour: '#2F4F4F', cost: 200, rent: 25 },
-  { id: 'angel', title: 'The Angel, Islington', colour: '#87CEEB', cost: 100, rent: 12 },
+  { id: 'kings_cross', title: "King's Cross Station", kind: 'station', cost: 200, rent: 25 },
+  { id: 'angel', title: 'The Angel, Islington', colour: '#87CEEB', cost: 100, rent: 12 , group: 'sky' },
   { id: 'chance_2', title: 'Chance', kind: 'chance' },
-  { id: 'euston', title: 'Euston Road', colour: '#87CEEB', cost: 100, rent: 12 },
-  { id: 'pentonville', title: 'Pentonville Road', colour: '#87CEEB', cost: 120, rent: 16 },
+  { id: 'euston', title: 'Euston Road', colour: '#87CEEB', cost: 100, rent: 12 , group: 'sky' },
+  { id: 'pentonville', title: 'Pentonville Road', colour: '#87CEEB', cost: 120, rent: 16 , group: 'sky' },
 
   { id: 'jail', title: 'Jail', kind: 'jail' },
-  { id: 'pall_mall', title: 'Pall Mall', colour: '#FF69B4', cost: 140, rent: 20 },
-  { id: 'whitehall', title: 'Whitehall', colour: '#FF69B4', cost: 140, rent: 20 },
-  { id: 'northumberland', title: 'Northumberland Avenue', colour: '#FF69B4', cost: 160, rent: 24 },
-  { id: 'marylebone', title: 'Marylebone Station', colour: '#2F4F4F', cost: 200, rent: 25 },
-  { id: 'bow', title: 'Bow Street', colour: '#FFA500', cost: 180, rent: 28 },
+  { id: 'pall_mall', title: 'Pall Mall', colour: '#FF69B4', cost: 140, rent: 20 , group: 'pink' },
+  { id: 'whitehall', title: 'Whitehall', colour: '#FF69B4', cost: 140, rent: 20 , group: 'pink' },
+  { id: 'northumberland', title: 'Northumberland Avenue', colour: '#FF69B4', cost: 160, rent: 24 , group: 'pink' },
+  { id: 'marylebone', title: 'Marylebone Station', kind: 'station', cost: 200, rent: 25 },
+  { id: 'bow', title: 'Bow Street', colour: '#FFA500', cost: 180, rent: 28 , group: 'orange' },
   { id: 'chance_3', title: 'Chance', kind: 'chance' },
-  { id: 'marlborough', title: 'Marlborough Street', colour: '#FFA500', cost: 180, rent: 28 },
-  { id: 'vine', title: 'Vine Street', colour: '#FFA500', cost: 200, rent: 32 },
+  { id: 'marlborough', title: 'Marlborough Street', colour: '#FFA500', cost: 180, rent: 28 , group: 'orange' },
+  { id: 'vine', title: 'Vine Street', colour: '#FFA500', cost: 200, rent: 32 , group: 'orange' },
   { id: 'free_parking', title: 'Free Parking', kind: 'free' },
 
-  { id: 'strand', title: 'Strand', colour: '#DC143C', cost: 220, rent: 36 },
+  { id: 'strand', title: 'Strand', colour: '#DC143C', cost: 220, rent: 36 , group: 'red' },
   { id: 'chance_4', title: 'Chance', kind: 'chance' },
-  { id: 'fleet', title: 'Fleet Street', colour: '#DC143C', cost: 220, rent: 36 },
-  { id: 'trafalgar', title: 'Trafalgar Square', colour: '#DC143C', cost: 240, rent: 40 },
-  { id: 'fenchurch', title: 'Fenchurch St Station', colour: '#2F4F4F', cost: 200, rent: 25 },
-  { id: 'leicester', title: 'Leicester Square', colour: '#FFFF00', cost: 260, rent: 44 },
-  { id: 'coventry', title: 'Coventry Street', colour: '#FFFF00', cost: 260, rent: 44 },
-  { id: 'piccadilly', title: 'Piccadilly', colour: '#FFFF00', cost: 280, rent: 48 },
+  { id: 'fleet', title: 'Fleet Street', colour: '#DC143C', cost: 220, rent: 36 , group: 'red' },
+  { id: 'trafalgar', title: 'Trafalgar Square', colour: '#DC143C', cost: 240, rent: 40 , group: 'red' },
+  { id: 'fenchurch', title: 'Fenchurch St Station', kind: 'station', cost: 200, rent: 25 },
+  { id: 'leicester', title: 'Leicester Square', colour: '#FFFF00', cost: 260, rent: 44 , group: 'yellow' },
+  { id: 'coventry', title: 'Coventry Street', colour: '#FFFF00', cost: 260, rent: 44 , group: 'yellow' },
+  { id: 'piccadilly', title: 'Piccadilly', colour: '#FFFF00', cost: 280, rent: 48 , group: 'yellow' },
   { id: 'go_to_jail', title: 'Go To Jail', kind: 'gotojail' },
-  { id: 'regent', title: 'Regent Street', colour: '#008000', cost: 300, rent: 52 },
+  { id: 'regent', title: 'Regent Street', colour: '#008000', cost: 300, rent: 52 , group: 'green' },
 
-  { id: 'oxford', title: 'Oxford Street', colour: '#008000', cost: 300, rent: 52 },
+  { id: 'oxford', title: 'Oxford Street', colour: '#008000', cost: 300, rent: 52 , group: 'green' },
   { id: 'chance_5', title: 'Chance', kind: 'chance' },
-  { id: 'bond', title: 'Bond Street', colour: '#008000', cost: 320, rent: 56 },
-  { id: 'liverpool', title: 'Liverpool St Station', colour: '#2F4F4F', cost: 200, rent: 25 },
+  { id: 'bond', title: 'Bond Street', colour: '#008000', cost: 320, rent: 56 , group: 'green' },
+  { id: 'liverpool', title: 'Liverpool St Station', kind: 'station', cost: 200, rent: 25 },
   { id: 'chance_6', title: 'Chance', kind: 'chance' },
-  { id: 'park_lane', title: 'Park Lane', colour: '#00008B', cost: 350, rent: 70 },
+  { id: 'park_lane', title: 'Park Lane', colour: '#00008B', cost: 350, rent: 70 , group: 'blue' },
   { id: 'super_tax', title: 'Super Tax', kind: 'tax' },
-  { id: 'mayfair', title: 'Mayfair', colour: '#00008B', cost: 400, rent: 100 },
-  { id: 'water_works', title: 'Water Works', colour: '#B0C4DE', cost: 150, rent: 20 },
-  { id: 'electric', title: 'Electric Company', colour: '#B0C4DE', cost: 150, rent: 20 },
+  { id: 'mayfair', title: 'Mayfair', colour: '#00008B', cost: 400, rent: 100 , group: 'blue' },
+  { id: 'water_works', title: 'Water Works', kind: 'utility', cost: 150, rent: 20 },
+  { id: 'electric', title: 'Electric Company', kind: 'utility', cost: 150, rent: 20 },
 ];
 
 const CELL = 96;
@@ -313,13 +423,16 @@ export function createMonopolyDemo(): GameDefinition {
       visual: { baseColor: '#F5F5F5', baseImage: '' },
     };
 
-    if ('colour' in square) {
+    if ('group' in square) {
       const rent = square.rent;
       cells.push({
         ...base,
         type: 'property',
         visual: { baseColor: square.colour, baseImage: '' },
         fields: {
+          // The group is a field like any other, which is the point: the
+          // engine knows nothing about colour groups, the query does.
+          group: square.group,
           cost: square.cost,
           rent,
           // Tiered rent, read by the level chain in rentByLevel().
@@ -333,6 +446,20 @@ export function createMonopolyDemo(): GameDefinition {
       });
     } else {
       switch (square.kind) {
+        case 'station':
+        case 'utility': {
+          // Same shape as a street, but rent comes from the query rather than
+          // from buildings, so these squares carry no tier fields at all.
+          const cost = square.cost ?? 200;
+          cells.push({
+            ...base,
+            type: square.kind,
+            visual: { baseColor: square.kind === 'station' ? '#2F4F4F' : '#B0C4DE', baseImage: '' },
+            fields: { cost, rent: square.rent ?? 25, mortgageValue: Math.round(cost / 2) },
+            onLand: holdingActions(square.kind),
+          });
+          break;
+        }
         case 'go':
           cells.push({ ...base, type: 'start', visual: { baseColor: '#4CAF50', baseImage: '' }, fields: {}, onLand: [] });
           break;
@@ -413,6 +540,7 @@ export function createMonopolyDemo(): GameDefinition {
         property: {
           title: 'Property',
           fields: {
+            group: { type: 'string', label: 'Colour group', default: 'brown' },
             cost: { type: 'number', label: 'Cost', default: 100 },
             rent: { type: 'number', label: 'Rent', default: 10 },
             rent1: { type: 'number', label: 'Rent with 1 house', default: 30 },
@@ -420,6 +548,22 @@ export function createMonopolyDemo(): GameDefinition {
             rentHotel: { type: 'number', label: 'Rent with a hotel', default: 150 },
             buildCost: { type: 'number', label: 'Cost to build', default: 50 },
             mortgageValue: { type: 'number', label: 'Mortgage value', default: 50 },
+          },
+        },
+        station: {
+          title: 'Station',
+          fields: {
+            cost: { type: 'number', label: 'Cost', default: 200 },
+            rent: { type: 'number', label: 'Rent per station owned', default: 25 },
+            mortgageValue: { type: 'number', label: 'Mortgage value', default: 100 },
+          },
+        },
+        utility: {
+          title: 'Utility',
+          fields: {
+            cost: { type: 'number', label: 'Cost', default: 150 },
+            rent: { type: 'number', label: 'Rent per utility owned', default: 20 },
+            mortgageValue: { type: 'number', label: 'Mortgage value', default: 75 },
           },
         },
         chance: { title: 'Chance', fields: {} },

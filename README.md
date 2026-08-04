@@ -22,6 +22,7 @@ Go backend · Svelte 5 frontend · PostgreSQL · Redis · Docker
 - [Configuration](#configuration)
 - [Translating](#translating)
 - [How a game is defined](#how-a-game-is-defined)
+- [Authoring guide](docs/AUTHORING.md)
 - [Development](#development)
 - [Current limitations](#current-limitations)
 - [License](#license)
@@ -53,14 +54,20 @@ roll"), never results.
 
 ![Editor](docs/screenshots/editor.png)
 
-**Action editor** — every action the engine can run, built from dropdowns.
-Amounts can be computed: "this cell's damage, minus my defence, at least zero".
+**Action editor** — every action the engine can run, built from dropdowns. An
+action can ask about the rest of the board ("cells of this type, owned by the
+owner of this one") and compute amounts from the answer.
 
 ![Action editor](docs/screenshots/action-editor.png)
 
 **Playtest** — dice, movement along the graph, and a choice produced entirely by the game's data.
 
 ![Playtest](docs/screenshots/playtest.png)
+
+**Auction** — declining to buy puts the square in front of the whole table, and
+bidding passes from player to player.
+
+![Auction](docs/screenshots/auction.png)
 
 **Multiplayer room** — roster, chat and server-authoritative play.
 
@@ -234,17 +241,24 @@ code in the engine.
 
 **Action types:** `gain_resource`, `lose_resource`, `transfer_resource`,
 `set_cell_owner`, `set_cell_level`, `set_cell_mortgaged`, `offer_choice`,
-`random_branch`, `if_cell_unowned`, `if_cell_owned_by_current`,
+`random_branch`, `start_auction`, `if_cell_unowned`, `if_cell_owned_by_current`,
 `if_cell_owned_by_other`, `if_cell_level_ge`, `if_cell_mortgaged`,
-`if_resource_ge`, `if_stat_ge`, `if_has_item`, `grant_item`, `remove_item`,
-`equip_item`, `unequip_slot`, `use_item`, `reveal_cells`, `move_player_to`,
-`skip_turns`, `finish_game`, `eliminate_player`, `log_message`.
+`if_cells_ge`, `for_each_cell`, `if_resource_ge`, `if_stat_ge`, `if_has_item`,
+`grant_item`, `remove_item`, `equip_item`, `unequip_slot`, `use_item`,
+`reveal_cells`, `move_player_to`, `skip_turns`, `finish_game`,
+`eliminate_player`, `log_message`.
 
 Every one of them is editable in the visual editor — the action list is
 generated from a schema, and a test fails the build if the engine gains an
 action the editor cannot reach. Amounts can be **computed** rather than fixed
 ("this cell's damage, minus my defence, at least zero"), which is what makes
 armour worth wearing.
+
+Actions can also ask about **other cells** — "how many stations does the owner
+of this one hold?", "does one player own every square in this colour group?" —
+and put a square up for **auction**, where every player bids in turn. Both are
+built from dropdowns, and both are explained with worked examples in
+**[docs/AUTHORING.md](docs/AUTHORING.md)**.
 
 Beyond a board and resources, a definition can also declare **items** with
 equipment slots and stat bonuses, **levels** with experience thresholds and
@@ -255,7 +269,9 @@ than a fixed path.
 Two bundled templates show the range:
 
 - **Monopoly** — 40 squares of pure data: buying, rent that scales with
-  buildings, mortgaging, jail, chance cards and bankruptcy.
+  buildings, colour groups that double the rent once one player owns all of
+  them, station rent that multiplies by the owner's holdings, auctions for
+  squares nobody buys, mortgaging, jail, chance cards and bankruptcy.
 - **Dungeon Crawl** — a 6×6 map you explore square by square, with stats,
   levels, loot you equip, traps, enemies whose difficulty is checked against
   your effective attack, and a dragon to kill.
@@ -295,13 +311,13 @@ Project conventions are in [AGENTS.md](AGENTS.md); contribution guidance is in
 
 Stated plainly, so you can judge whether Rollboard fits before deploying it:
 
-- **No public game discovery.** Rooms are shared by ID; there is no browsable catalogue or invite link.
+- **No public game discovery.** Rooms are shared by ID or invite link; there is no browsable catalogue.
 - **No presence indicator.** You cannot see who is currently connected, only who is a member.
 - **Rate limiting is per replica.** Behind N replicas the effective ceiling is N times the configured limit.
 - **No bots.** Every player must be a human.
 - **No undo.** The event journal records what happened but cannot roll it back.
-- **Actions cannot read other cells.** This rules out colour-group monopolies and rent that scales with how many squares of a kind you own.
-- **No auctions.** Trading between two players works; an auction across all of them does not.
+- **Bidding is stepped, not free-form.** An auction offers a few raises the server generated; a player cannot type an arbitrary amount.
+- **No table lookups.** Tiered values are written as descending `if_*_ge` chains, which works but reads long.
 - **Journal retention is unbounded.** Pruning policy is not implemented; busy deployments will want one.
 - **No load testing has been done.** Treat capacity claims as unproven.
 - **Uploads are images only**, at most 2 MB, with the type sniffed from the bytes rather than trusted from the filename. SVG is refused because it can carry script.

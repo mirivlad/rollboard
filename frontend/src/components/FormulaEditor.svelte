@@ -1,27 +1,34 @@
 <script lang="ts">
-  import type { AmountFormula, AmountTerm } from '../lib/types';
+  import type { AmountFormula, AmountTerm, CellDefinition, CellQuery, RuleSet } from '../lib/types';
   import { i18n } from '../lib/i18n.svelte';
+  import CellQueryEditor from './CellQueryEditor.svelte';
 
   type Props = {
     formula?: AmountFormula;
     resources: string[];
+    rules: RuleSet;
+    cells: CellDefinition[];
     onChange: (formula: AmountFormula | undefined) => void;
   };
 
-  let { formula, resources, onChange }: Props = $props();
+  let { formula, resources, rules, cells, onChange }: Props = $props();
   let t = $derived(i18n.t);
   let open = $derived(formula !== undefined);
 
+  type Slot = 'base' | 'plus' | 'minus' | 'times' | 'dividedBy';
+  const SLOTS: Slot[] = ['base', 'plus', 'minus', 'times', 'dividedBy'];
+
   /**
-   * A term is either a plain number or a value read from the player or the
-   * cell, which is the whole vocabulary an author needs: "10", "the cell's
-   * damage field", "my defence including armour".
+   * A term is a plain number, a value read from the player or the cell, or a
+   * count of matching cells — the whole vocabulary an author needs: "10", "the
+   * cell's damage field", "my defence including armour", "how many stations
+   * this owner holds".
    */
   function termKind(term?: AmountTerm): string {
     return term?.kind ?? '';
   }
 
-  function setTerm(slot: 'base' | 'plus' | 'minus', changes: Partial<AmountTerm> | null) {
+  function setTerm(slot: Slot, changes: Partial<AmountTerm> | null) {
     const next: AmountFormula = { ...(formula ?? {}) };
     if (changes === null) {
       delete next[slot];
@@ -31,7 +38,7 @@
     onChange(next);
   }
 
-  function setNumber(key: 'times' | 'dividedBy' | 'min' | 'max', raw: string) {
+  function setClamp(key: 'min' | 'max', raw: string) {
     const next: AmountFormula = { ...(formula ?? {}) };
     if (raw === '') delete next[key];
     else next[key] = Number(raw);
@@ -51,7 +58,7 @@
 
   {#if formula}
     <p class="explain">{t('inspector.formulaHint')}</p>
-    {#each ['base', 'plus', 'minus'] as const as slot (slot)}
+    {#each SLOTS as slot (slot)}
       {@const term = formula[slot]}
       <div class="term">
         <span class="slot-label">{t(`inspector.formula.${slot}`)}</span>
@@ -68,6 +75,7 @@
           <option value="field">{t('inspector.formula.field')}</option>
           <option value="stat">{t('inspector.formula.stat')}</option>
           <option value="resource">{t('inspector.formula.resource')}</option>
+          <option value="cells">{t('inspector.formula.cells')}</option>
         </select>
 
         {#if term?.kind === 'const'}
@@ -88,17 +96,28 @@
             {#each resources as name (name)}<option value={name}>{name}</option>{/each}
           </select>
         {/if}
+
+        {#if term?.kind === 'cells'}
+          <div class="term-query">
+            <CellQueryEditor
+              query={term.query}
+              {rules}
+              {cells}
+              onChange={(query: CellQuery) => setTerm(slot, { query })}
+            />
+          </div>
+        {/if}
       </div>
     {/each}
 
     <div class="clamps">
-      {#each ['times', 'dividedBy', 'min', 'max'] as const as key (key)}
+      {#each ['min', 'max'] as const as key (key)}
         <label>
           {t(`inspector.formula.${key}`)}
           <input
             type="number"
             value={formula[key] ?? ''}
-            oninput={(event) => setNumber(key, (event.target as HTMLInputElement).value)}
+            oninput={(event) => setClamp(key, (event.target as HTMLInputElement).value)}
           />
         </label>
       {/each}
@@ -139,6 +158,10 @@
     .term {
       grid-template-columns: 4rem minmax(0, 1fr) minmax(0, 1fr);
     }
+  }
+  /* A query needs the full width whatever the term row is doing. */
+  .term-query {
+    grid-column: 1 / -1;
   }
   .slot-label {
     color: var(--text-faint);

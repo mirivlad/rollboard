@@ -94,6 +94,19 @@ describe('blankAction', () => {
     expect(blankAction('offer_choice').options).toEqual([]);
   });
 
+  it('starts a cell query as "every cell", which is a working filter', () => {
+    // Validation refuses an action with no query at all, so a blank one has to
+    // be an object the author narrows down rather than nothing.
+    expect(blankAction('if_cells_ge').query).toEqual({});
+    expect(blankAction('for_each_cell').query).toEqual({});
+  });
+
+  it('gives an auction both of its branches', () => {
+    const auction = blankAction('start_auction');
+    expect(auction.then).toEqual([]);
+    expect(auction.else).toEqual([]);
+  });
+
   it('carries nothing an action type has no use for', () => {
     // Switching an action's type must not leave a stale amount behind on a
     // type that ignores amounts.

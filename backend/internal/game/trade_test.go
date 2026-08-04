@@ -192,8 +192,8 @@ func TestComputedAmountsClampAndScale(t *testing.T) {
 
 	got = session.resolveFormula(&AmountFormula{
 		Base:      &AmountTerm{Kind: "const", Value: 10},
-		Times:     intPtr(3),
-		DividedBy: intPtr(4),
+		Times:     &AmountTerm{Kind: "const", Value: 3},
+		DividedBy: &AmountTerm{Kind: "const", Value: 4},
 		Max:       intPtr(6),
 	}, player, cell)
 	if got != 6 {
@@ -203,7 +203,7 @@ func TestComputedAmountsClampAndScale(t *testing.T) {
 	// A zero divisor must not take the game down.
 	got = session.resolveFormula(&AmountFormula{
 		Base:      &AmountTerm{Kind: "const", Value: 9},
-		DividedBy: intPtr(0),
+		DividedBy: &AmountTerm{Kind: "const", Value: 0},
 	}, player, cell)
 	if got != 9 {
 		t.Fatalf("value = %d, want the zero divisor ignored", got)

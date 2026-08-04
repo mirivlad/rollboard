@@ -22,7 +22,9 @@ export type FieldKind =
   | 'text'
   | 'target'     // current player / cell owner / bank
   | 'boolean'    // stored as the string "true" or "false"
+  | 'auctionAudience' // everyone at the table, or everyone but the acting player
   | 'formula'    // a computed amount
+  | 'query'      // which other cells this action asks about
   | 'actions'    // a nested list, for then/else
   | 'options';   // a nested list of choices
 
@@ -38,7 +40,7 @@ export interface ActionField {
 export interface ActionSchema {
   type: string;
   labelKey: string;
-  /** Groups the picker, so twenty-seven entries stay navigable. */
+  /** Groups the picker, so thirty entries stay navigable. */
   group: 'resources' | 'items' | 'cell' | 'player' | 'flow' | 'board';
   fields: ActionField[];
 }
@@ -117,6 +119,14 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
     type: 'reveal_cells', labelKey: 'action.reveal_cells', group: 'board',
     fields: [amount, { name: 'to', kind: 'cell', labelKey: 'inspector.destination' }],
   },
+  {
+    type: 'if_cells_ge', labelKey: 'action.if_cells_ge', group: 'board',
+    fields: [{ name: 'query', kind: 'query', labelKey: 'inspector.query', required: true }, amount, formula, ...branches],
+  },
+  {
+    type: 'for_each_cell', labelKey: 'action.for_each_cell', group: 'board',
+    fields: [{ name: 'query', kind: 'query', labelKey: 'inspector.query', required: true }, ...branches],
+  },
 
   // --- flow ----------------------------------------------------------------
   {
@@ -129,6 +139,20 @@ export const ACTION_SCHEMAS: ActionSchema[] = [
   {
     type: 'random_branch', labelKey: 'action.random_branch', group: 'flow',
     fields: [{ name: 'options', kind: 'options', labelKey: 'inspector.outcomes' }],
+  },
+  {
+    // then is what the winner gets, so it is labelled as such rather than as
+    // a branch: an auction that awards nothing is refused at publication.
+    type: 'start_auction', labelKey: 'action.start_auction', group: 'flow',
+    fields: [
+      { name: 'resource', kind: 'resource', labelKey: 'inspector.bidCurrency', required: true },
+      amount,
+      { name: 'increment', kind: 'number', labelKey: 'inspector.increment' },
+      { name: 'target', kind: 'auctionAudience', labelKey: 'inspector.bidders' },
+      { name: 'title', kind: 'text', labelKey: 'inspector.title' },
+      { name: 'then', kind: 'actions', labelKey: 'inspector.winnerGets' },
+      { name: 'else', kind: 'actions', labelKey: 'inspector.nobodyBids' },
+    ],
   },
   { type: 'finish_game', labelKey: 'action.finish_game', group: 'flow', fields: [] },
   {
@@ -150,6 +174,9 @@ export function blankAction(type: string): ActionDefinition {
   for (const field of schema?.fields ?? []) {
     if (field.kind === 'actions') (action as unknown as Record<string, unknown>)[field.name] = [];
     if (field.kind === 'options') (action as unknown as Record<string, unknown>)[field.name] = [];
+    // An empty query means "every cell on the board", which is a working
+    // starting point the author narrows down rather than an error.
+    if (field.kind === 'query') (action as unknown as Record<string, unknown>)[field.name] = {};
   }
   return action;
 }

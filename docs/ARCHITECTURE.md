@@ -129,19 +129,51 @@ stored result without re-executing the command. On reconnect, the hub replays up
 to 64 contiguous journal events newer than `since`; any gap or longer range
 safely produces the latest authenticated PostgreSQL snapshot instead.
 
+## Cell queries and auctions
+
+Building the full 40-square Monopoly template mapped the edges of the action
+set, and two of the gaps it found are now filled. Both are general
+capabilities available to every author from the editor, not special cases for
+the bundled templates — see **[AUTHORING.md](AUTHORING.md)** for worked
+examples.
+
+**Cell queries.** A `CellQuery` selects cells by type, by a field the author
+defined, and by owner (`none`, `current`, `cellOwner`, `other`). `if_cells_ge`
+branches on how many match, `for_each_cell` runs a list once per match with
+that cell as the context, and a formula term of kind `cells` turns a count into
+a number, which is what lets rent multiply by holdings. `sameAsCell` compares a
+field against the cell being resolved, so "the rest of this colour group" is one
+query that works for every group rather than one query per colour.
+
+The owner filter distinguishes the visitor from the landlord deliberately.
+Rent scales with what the *owner* holds (`cellOwner`), not with what the player
+standing on the square holds, and the two are easy to confuse when writing the
+rule out in prose.
+
+**Auctions.** `start_auction` runs an open ascending auction: bidding passes
+round the table, and the pending action belongs to one bidder at a time. That
+shape was chosen because a `PendingAction` addresses exactly one player, so a
+simultaneous sealed bid has nowhere to live — and because bidding in turn makes
+the auction resumable. It lives in the session state, so a player who reloads
+mid-auction gets it back and a room replaying its journal replays the bidding.
+
+The server generates the bid options (a few raises and "pass") and accepts only
+an option it offered, re-checking the balance when the answer arrives. The
+winner pays the bank and the author's `then` list runs *as the winner*, so
+"give this cell to the current player" hands it to whoever won rather than to
+whoever landed on the square.
+
+Actions nest three ways — branches, a teleport that runs the destination's
+`onLand`, and a query that runs a list per matching cell — so execution is
+bounded at 32 levels. A definition that loops back on itself stops with an
+`action_depth_exceeded` event instead of taking the process down.
+
 ## What the action language cannot express yet
 
-Building the full 40-square Monopoly template was the exercise that mapped the
-edges of the current action set. These are the gaps it found:
-
-- **No cross-cell queries.** An action can read and write the cell it is running
-  on, and nothing else. That rules out colour-group monopolies ("double rent if
-  one player owns every square of this colour") and station rent that scales
-  with how many stations the owner holds.
-- **No player-to-player negotiation.** A `PendingAction` is addressed to exactly
-  one player, so trading and auctions cannot be represented.
 - **No table lookups.** Tiered values are written as descending `if_*_ge`
   chains, which works but is verbose.
+- **No free-form bids.** An auction offers stepped amounts the server
+  generated, not a number the player types.
 - **Payments floor at zero rather than failing.** `lose_resource` and
   `transfer_resource` clamp, so a definition that wants bankruptcy must guard
   the payment with `if_resource_ge` and call `eliminate_player` in the else

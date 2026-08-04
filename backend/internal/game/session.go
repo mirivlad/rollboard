@@ -9,6 +9,11 @@ type GameSession struct {
 	Mode        string          `json:"mode"`
 	Definition  *GameDefinition `json:"definition"`
 	State       GameState       `json:"state"`
+
+	// execDepth counts nested action execution. Unexported so it neither
+	// serialises to a client nor persists: it is a property of the call in
+	// flight, not of the game.
+	execDepth int
 }
 
 type PendingMovement struct {
@@ -32,6 +37,7 @@ type GameState struct {
 	PendingAction      *PendingAction       `json:"pendingAction,omitempty"`
 	PendingMovement    *PendingMovement     `json:"pendingMovement,omitempty"`
 	PendingTrade       *TradeOffer          `json:"pendingTrade,omitempty"`
+	PendingAuction     *Auction             `json:"pendingAuction,omitempty"`
 }
 
 type PlayerState struct {

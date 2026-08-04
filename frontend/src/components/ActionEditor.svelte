@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { ActionDefinition, AmountFormula, CellDefinition, RuleSet } from '../lib/types';
+  import type { ActionDefinition, AmountFormula, CellDefinition, CellQuery, RuleSet } from '../lib/types';
   import { ACTION_GROUPS, ACTION_SCHEMAS, blankAction, schemaFor, type ActionField } from '../lib/action-schema';
   import { i18n } from '../lib/i18n.svelte';
   import FormulaEditor from './FormulaEditor.svelte';
+  import CellQueryEditor from './CellQueryEditor.svelte';
   import ActionEditor from './ActionEditor.svelte';
 
   type Props = {
@@ -153,8 +154,20 @@
             <FormulaEditor
               formula={action.formula}
               resources={resourceNames}
+              {rules}
+              {cells}
               onChange={(next: AmountFormula | undefined) => update(index, { formula: next })}
             />
+          {:else if field.kind === 'query'}
+            <div class="branch">
+              <span class="branch-label">{t(field.labelKey)}</span>
+              <CellQueryEditor
+                query={action.query}
+                {rules}
+                {cells}
+                onChange={(next: CellQuery) => update(index, { query: next })}
+              />
+            </div>
           {:else}
             <label>
               {t(field.labelKey)}
@@ -185,6 +198,11 @@
                   <option value="owner">{t('target.owner')}</option>
                   <option value="bank">{t('target.bank')}</option>
                   <option value="none">{t('target.none')}</option>
+                </select>
+              {:else if field.kind === 'auctionAudience'}
+                <select value={value(action, field)} onchange={(e) => setField(index, field, (e.target as HTMLSelectElement).value)}>
+                  <option value="">{t('bidders.all')}</option>
+                  <option value="others">{t('bidders.others')}</option>
                 </select>
               {:else if field.kind === 'boolean'}
                 <select value={value(action, field)} onchange={(e) => setField(index, field, (e.target as HTMLSelectElement).value)}>

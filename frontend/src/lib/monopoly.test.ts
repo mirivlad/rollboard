@@ -136,3 +136,79 @@ describe('the engine primitives this template depends on', () => {
     }
   });
 });
+
+describe('colour groups', () => {
+  const properties = game.board.cells.filter((c) => c.type === 'property');
+
+  it('give every street a group other streets share', () => {
+    const sizes = new Map<string, number>();
+    for (const cell of properties) {
+      const group = cell.fields.group;
+      expect(group, `${cell.id} has no colour group`).toBeTypeOf('string');
+      sizes.set(group, (sizes.get(group) ?? 0) + 1);
+    }
+    // A group of one would be a monopoly the moment it was bought.
+    for (const [group, size] of sizes) expect(size, group).toBeGreaterThan(1);
+  });
+
+  it('detects a complete group by comparing two queries, not a fixed number', () => {
+    // Hard-coding "3 squares" would quietly break the moment somebody edited
+    // the board, which is exactly what a template must not teach.
+    const monopolyCheck = allActions().find((a) => a.type === 'if_cells_ge');
+    expect(monopolyCheck).toBeDefined();
+    expect(monopolyCheck!.query).toMatchObject({ field: 'group', sameAsCell: true, owner: 'cellOwner' });
+    expect(monopolyCheck!.formula?.base).toMatchObject({ kind: 'cells' });
+    expect(monopolyCheck!.amount).toBeUndefined();
+  });
+});
+
+describe('stations and utilities', () => {
+  it('charge rent per holding rather than by tier', () => {
+    for (const type of ['station', 'utility']) {
+      const cells = game.board.cells.filter((c) => c.type === type);
+      expect(cells.length, type).toBeGreaterThan(1);
+
+      const rents: ActionDefinition[] = [];
+      for (const cell of cells) walk(cell.onLand, (a) => { if (a.type === 'transfer_resource') rents.push(a); });
+      expect(rents.length, `${type} charges no rent`).toBeGreaterThan(0);
+      for (const rent of rents) {
+        // The multiplier counts the landlord's holdings; counting the
+        // visitor's would charge a tenant for their own stations.
+        expect(rent.formula?.times).toMatchObject({ kind: 'cells', query: { type, owner: 'cellOwner' } });
+      }
+    }
+  });
+});
+
+describe('auctions', () => {
+  it('put a declined square in front of the whole table', () => {
+    const auctions = allActions().filter((a) => a.type === 'start_auction');
+    expect(auctions.length).toBeGreaterThan(0);
+    for (const auction of auctions) {
+      expect(auction.resource).toBe('money');
+      // An auction that awards nothing takes the winning bid and gives back
+      // nothing; the backend refuses to publish one.
+      expect(auction.then?.[0]?.type).toBe('set_cell_owner');
+      expect(auction.else?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it('is reachable both by declining and by being unable to pay', () => {
+    const unowned = game.board.cells
+      .find((c) => c.type === 'property')!
+      .onLand!.find((a) => a.type === 'if_cell_unowned')!;
+    const offer = unowned.then![0];
+    const declined = offer.then![0].options!.find((o) => o.id === 'pass');
+    expect(declined!.then![0].type).toBe('start_auction');
+    expect(offer.else!.some((a) => a.type === 'start_auction')).toBe(true);
+  });
+});
+
+describe('board-wide effects', () => {
+  it('charges street repairs per built square instead of a flat fee', () => {
+    const repairs = allActions().find((a) => a.type === 'for_each_cell');
+    expect(repairs).toBeDefined();
+    expect(repairs!.query).toMatchObject({ type: 'property', owner: 'current', minLevel: 1 });
+    expect(repairs!.then?.[0]?.type).toBe('lose_resource');
+  });
+});

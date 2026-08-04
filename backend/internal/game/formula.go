@@ -23,6 +23,8 @@ func (s *GameSession) resolveTerm(term *AmountTerm, player *PlayerState, cell *C
 			return 0
 		}
 		return player.Resources[term.Name]
+	case "cells":
+		return s.countCells(term.Query, player, cell)
 	default:
 		return 0
 	}
@@ -42,12 +44,15 @@ func (s *GameSession) resolveFormula(formula *AmountFormula, player *PlayerState
 	value -= s.resolveTerm(formula.Minus, player, cell)
 
 	if formula.Times != nil {
-		value *= *formula.Times
+		value *= s.resolveTerm(formula.Times, player, cell)
 	}
 	// Division by zero would panic, so a zero divisor is treated as "no
-	// division" rather than taking down the game.
-	if formula.DividedBy != nil && *formula.DividedBy != 0 {
-		value /= *formula.DividedBy
+	// division" rather than taking down the game. A divisor that counts cells
+	// is zero far more often than a literal one ever was.
+	if formula.DividedBy != nil {
+		if divisor := s.resolveTerm(formula.DividedBy, player, cell); divisor != 0 {
+			value /= divisor
+		}
 	}
 	// Clamps last, so "at least zero" holds whatever the arithmetic produced.
 	if formula.Min != nil && value < *formula.Min {

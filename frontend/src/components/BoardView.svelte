@@ -38,23 +38,19 @@
       cellSize={board.cellSize}
     />
 
-    <!-- Cells -->
+    <!-- Cells.
+         CellView places itself at the cell's own coordinates, so it goes
+         straight into the board area. Wrapping it in a second positioned
+         element offset by the same coordinates put every tile at twice its
+         distance from the origin: the grid, the tokens and the edges all agreed
+         with each other and the tiles alone drifted off to the right. -->
     {#each board.cells as cell (cell.id)}
-      <div
-        class="cell-wrapper"
-        style="
-          left: {cell.x}px;
-          top: {cell.y}px;
-          position: absolute;
-        "
-      >
-        <CellView
-          {cell}
-          cellSize={board.cellSize}
-          cellState={cellStates[cell.id]}
-          {players}
-        />
-      </div>
+      <CellView
+        {cell}
+        cellSize={board.cellSize}
+        cellState={cellStates[cell.id]}
+        {players}
+      />
     {/each}
 
     <!-- Tokens -->
@@ -82,8 +78,5 @@
     position: absolute;
     border: 1px solid var(--accent-surface);
     box-sizing: border-box;
-  }
-  .cell-wrapper {
-    position: absolute;
   }
 </style>

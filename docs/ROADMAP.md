@@ -19,10 +19,15 @@ The approved platform design is in
 6. Integration tests that actually run, and CI that fails on a skipped test.
 7. Design tokens, light and dark themes, keyboard accessibility, responsive layouts.
 8. English and Russian, with further languages addable at runtime.
+9. Items, equipment, levels, hidden cells, free movement and computed amounts.
+10. Trading between two players, auctions across the whole table, and cell
+    queries that let a rule read the rest of the board.
+11. A visual action editor generated from a schema, covering every action the
+    engine can execute.
 
 ## Next
 
-- Public room discovery and invite links.
+- Public room discovery.
 - Presence.
 - Event-journal retention policy.
 - Load testing, which has not been done at all.

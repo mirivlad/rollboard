@@ -398,8 +398,24 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 	return events
 }
 
+// maxActionDepth bounds how deeply actions may nest at run time.
+//
+// Actions can reach other actions three ways now — branches, a teleport that
+// runs the destination's onLand, and a query that runs a list once per matching
+// cell — and a definition that loops through them would take the whole server
+// down with a stack overflow rather than just breaking one game. The limit is
+// far above anything a real board needs.
+const maxActionDepth = 32
+
 // executeActions runs a list of action definitions and returns events.
 func (s *GameSession) executeActions(actions []ActionDefinition, player *PlayerState, cell *CellDefinition) []GameEvent {
+	if s.execDepth >= maxActionDepth {
+		return []GameEvent{NewGameEvent("action_depth_exceeded",
+			fmt.Sprintf("Stopped after %d nested actions: this game's rules loop back on themselves", maxActionDepth), nil)}
+	}
+	s.execDepth++
+	defer func() { s.execDepth-- }()
+
 	var events []GameEvent
 	for _, a := range actions {
 		if s.State.PendingAction != nil {
@@ -684,6 +700,38 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		}
 		return s.executeActions(a.Else, player, cell)
 
+	case "if_cells_ge":
+		// Both sides can be counts, because "owns every cell in this group"
+		// is one query compared against another rather than against a number
+		// the author would have to keep in step with the board.
+		count := s.countCells(a.Query, player, cell)
+		if count >= s.amountFor(a, player, cell) {
+			return s.executeActions(a.Then, player, cell)
+		}
+		return s.executeActions(a.Else, player, cell)
+
+	case "for_each_cell":
+		matches := s.matchingCells(a.Query, player, cell)
+		if len(matches) == 0 {
+			return s.executeActions(a.Else, player, cell)
+		}
+		var events []GameEvent
+		for _, match := range matches {
+			// Each pass runs against the matched cell, so set_cell_level and
+			// set_cell_owner inside the loop act on it and not on the square
+			// the player is standing on.
+			events = append(events, s.executeActions(a.Then, player, match)...)
+			// A choice raised inside the loop belongs to one cell; carrying on
+			// would queue a second one over the top of it.
+			if s.State.PendingAction != nil {
+				break
+			}
+		}
+		return events
+
+	case "start_auction":
+		return s.startAuction(a, player, cell)
+
 	default:
 		return []GameEvent{NewGameEvent("unknown_action",
 			fmt.Sprintf("Unknown action type: %s", a.Type), nil)}
@@ -698,6 +746,8 @@ func (s *GameSession) ResolvePendingAction(actionID string) ([]GameEvent, error)
 	switch s.State.PendingAction.Type {
 	case "trade_offer":
 		return s.resolveTrade(actionID)
+	case "auction_bid":
+		return s.resolveAuctionBid(actionID)
 	case "free_move":
 		return s.resolveFreeMove(actionID)
 	case "route_choice":
@@ -730,7 +780,13 @@ func (s *GameSession) resolveStandardChoice(actionID string) ([]GameEvent, error
 
 	events := s.executeActions(chosen.Then, player, cell)
 
-	s.advanceTurn()
+	// A choice whose branch raises another choice — a second offer, an
+	// auction — leaves the turn where it is. Advancing unconditionally used to
+	// hand the turn to the next player while the previous one still had a
+	// question in front of them.
+	if s.State.PendingAction == nil {
+		s.advanceTurn()
+	}
 	return events, nil
 }
 

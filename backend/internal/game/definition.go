@@ -1,5 +1,11 @@
 package game
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
 type GameDefinition struct {
 	ID      string  `json:"id"`
 	Title   string  `json:"title"`
@@ -141,9 +147,16 @@ type ActionDefinition struct {
 	Title    string             `json:"title,omitempty"`
 	ActionID string             `json:"actionId,omitempty"`
 	MiniGame *MiniGameReference `json:"miniGame,omitempty"`
-	Then     []ActionDefinition `json:"then,omitempty"`
-	Else     []ActionDefinition `json:"else,omitempty"`
-	Options  []ActionOption     `json:"options,omitempty"`
+	// Query selects other cells on the board, for the actions that ask about
+	// more than the square they are attached to.
+	Query *CellQuery `json:"query,omitempty"`
+	// Increment is the smallest raise in an auction. Blank means a tenth of
+	// the opening bid, so an author who fills in nothing still gets sensible
+	// bidding steps.
+	Increment *int               `json:"increment,omitempty"`
+	Then      []ActionDefinition `json:"then,omitempty"`
+	Else      []ActionDefinition `json:"else,omitempty"`
+	Options   []ActionOption     `json:"options,omitempty"`
 }
 
 // AmountFormula is deliberately a fixed shape rather than a general
@@ -151,13 +164,20 @@ type ActionDefinition struct {
 // covers "damage minus defence, at least zero" and stays a handful of
 // dropdowns in the editor, which is the point — authors do not write code.
 type AmountFormula struct {
-	Base      *AmountTerm `json:"base,omitempty"`
-	Plus      *AmountTerm `json:"plus,omitempty"`
-	Minus     *AmountTerm `json:"minus,omitempty"`
-	Times     *int        `json:"times,omitempty"`
-	DividedBy *int        `json:"dividedBy,omitempty"`
-	Min       *int        `json:"min,omitempty"`
-	Max       *int        `json:"max,omitempty"`
+	Base  *AmountTerm `json:"base,omitempty"`
+	Plus  *AmountTerm `json:"plus,omitempty"`
+	Minus *AmountTerm `json:"minus,omitempty"`
+	// Times and DividedBy are terms rather than plain numbers, which is what
+	// lets rent scale with a count: "the rent field, times the number of
+	// stations this owner holds". A bare number still decodes, so definitions
+	// written before this read back unchanged.
+	Times     *AmountTerm `json:"times,omitempty"`
+	DividedBy *AmountTerm `json:"dividedBy,omitempty"`
+	// Min and Max stay literal. A clamp is a rule of the game ("never below
+	// zero"), not a quantity to compute, and keeping them numbers keeps the
+	// editor short.
+	Min *int `json:"min,omitempty"`
+	Max *int `json:"max,omitempty"`
 }
 
 // AmountTerm is one value in a formula.
@@ -166,10 +186,40 @@ type AmountFormula struct {
 //	field    a field on the cell being resolved
 //	stat     the acting player's effective value, equipment included
 //	resource the acting player's stored value, equipment excluded
+//	cells    how many cells match Query
 type AmountTerm struct {
-	Kind  string `json:"kind"`
-	Name  string `json:"name,omitempty"`
-	Value int    `json:"value,omitempty"`
+	Kind  string     `json:"kind"`
+	Name  string     `json:"name,omitempty"`
+	Value int        `json:"value,omitempty"`
+	Query *CellQuery `json:"query,omitempty"`
+}
+
+// UnmarshalJSON accepts a bare number as shorthand for a constant.
+//
+// Times and DividedBy used to be plain integers. Every definition already
+// published writes "times": 2, and a stored game that no longer loads is a
+// destroyed game, so the shorthand is part of the format rather than a
+// migration.
+func (t *AmountTerm) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+	if trimmed[0] != '{' {
+		var n int
+		if err := json.Unmarshal(trimmed, &n); err != nil {
+			return fmt.Errorf("amount term: expected an object or a number: %w", err)
+		}
+		*t = AmountTerm{Kind: "const", Value: n}
+		return nil
+	}
+	type termAlias AmountTerm
+	var alias termAlias
+	if err := json.Unmarshal(trimmed, &alias); err != nil {
+		return err
+	}
+	*t = AmountTerm(alias)
+	return nil
 }
 
 type ActionOption struct {

@@ -2,6 +2,7 @@
   import type { GameDefinition, GameSession, PlayerState } from '../lib/types';
   import { api } from '../lib/api';
   import { errorMessage, i18n } from '../lib/i18n.svelte';
+  import { optionLabel, pendingHeading } from '../lib/option-label';
   import BoardView from './BoardView.svelte';
   import InventoryPanel from './InventoryPanel.svelte';
   import TradePanel from './TradePanel.svelte';
@@ -432,7 +433,7 @@
                 {#if currentSession.state.pendingAction.type === 'route_choice'}
                   <h3>{t('playtest.choosePath')}</h3>
                 {:else}
-                  <h3>{currentSession.state.pendingAction.title || t('playtest.actionRequired')}</h3>
+                  <h3>{pendingHeading(currentSession, t, 'playtest.actionRequired')}</h3>
                 {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
@@ -440,7 +441,7 @@
                     onclick={() => handleAction(opt.id)}
                     disabled={loading}
                   >
-                    {opt.title}
+                    {optionLabel(opt, t, { resource: currentSession.state.pendingAuction?.resource })}
                   </button>
                 {/each}
               {:else}
@@ -470,7 +471,7 @@
                 {#if currentSession.state.pendingAction.type === 'route_choice'}
                   <h3>{t('playtest.choosePath')}</h3>
                 {:else}
-                  <h3>{currentSession.state.pendingAction.title || t('playtest.actionRequired')}</h3>
+                  <h3>{pendingHeading(currentSession, t, 'playtest.actionRequired')}</h3>
                 {/if}
                 {#each currentSession.state.pendingAction.options || [] as opt}
                   <button
@@ -478,7 +479,7 @@
                     onclick={() => handleAction(opt.id)}
                     disabled={loading}
                   >
-                    {opt.title}
+                    {optionLabel(opt, t, { resource: currentSession.state.pendingAuction?.resource })}
                   </button>
                 {/each}
               {/if}

@@ -93,22 +93,46 @@ export interface FieldDefinition {
   options?: string[];
 }
 
+/**
+ * A set of cells, described the way an author can fill it in: a cell type, a
+ * field they defined themselves, and who owns it.
+ *
+ * This is what makes "rent × how many stations the owner holds" and "double
+ * once one player owns the whole colour group" expressible at all — an action
+ * used to see only the square it was attached to.
+ */
+export interface CellQuery {
+  type?: string;
+  field?: string;
+  value?: string;
+  /** Compare `field` against the same field on the cell being resolved. */
+  sameAsCell?: boolean;
+  owner?: '' | 'any' | 'none' | 'current' | 'other' | 'cellOwner';
+  minLevel?: number;
+  excludeCurrentCell?: boolean;
+}
+
 export interface AmountTerm {
-  kind: 'const' | 'field' | 'stat' | 'resource';
+  kind: 'const' | 'field' | 'stat' | 'resource' | 'cells';
   name?: string;
   value?: number;
+  /** Only for kind 'cells': how many cells match. */
+  query?: CellQuery;
 }
 
 /**
  * A computed amount. Fixed shape rather than an expression tree, so the editor
  * stays a handful of dropdowns: base (+plus) (-minus), scaled, then clamped.
+ *
+ * The scale is a term rather than a number so it can be a count; the clamps
+ * stay literal, because "never below zero" is a rule and not a quantity.
  */
 export interface AmountFormula {
   base?: AmountTerm;
   plus?: AmountTerm;
   minus?: AmountTerm;
-  times?: number;
-  dividedBy?: number;
+  times?: AmountTerm;
+  dividedBy?: AmountTerm;
   min?: number;
   max?: number;
 }
@@ -125,6 +149,10 @@ export interface ActionDefinition {
   title?: string;
   actionId?: string;
   miniGame?: MiniGameReference;
+  /** Which other cells this action asks about. */
+  query?: CellQuery;
+  /** The smallest raise in an auction; blank means a tenth of the opening bid. */
+  increment?: number;
   then?: ActionDefinition[];
   else?: ActionDefinition[];
   options?: ActionOption[];
@@ -239,6 +267,21 @@ export interface GameState {
   winnerPlayerId?: string;
   log: GameEvent[];
   pendingAction?: PendingAction;
+  pendingAuction?: Auction;
+}
+
+/** An auction in progress. Bidding runs in turn, so it survives a reload. */
+export interface Auction {
+  cellId?: string;
+  title?: string;
+  resource: string;
+  increment: number;
+  minBid: number;
+  highBid: number;
+  highBidderId?: string;
+  startedByPlayerId?: string;
+  order: string[];
+  index: number;
 }
 
 export interface ItemDef {

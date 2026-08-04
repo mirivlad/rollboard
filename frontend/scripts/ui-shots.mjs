@@ -89,6 +89,42 @@ function demoGame() {
   const cell = (id, title, type, x, y, color, fields = {}, onLand = []) => ({
     id, title, type, x, y, visual: { baseColor: color, baseImage: '' }, fields, onLand,
   });
+
+  // Rent that doubles once one owner holds the whole quay, written as one
+  // query compared against another. Every property below shares it.
+  const sameQuay = (owner) => ({
+    type: 'property', field: 'quay', sameAsCell: true, ...(owner ? { owner } : {}),
+  });
+  const rent = [
+    { type: 'if_cells_ge',
+      query: sameQuay('cellOwner'),
+      formula: { base: { kind: 'cells', query: sameQuay() } },
+      then: [{ type: 'transfer_resource', resource: 'money', target: 'owner',
+        formula: { base: { kind: 'field', name: 'rent' }, times: { kind: 'const', value: 2 } } }],
+      else: [{ type: 'transfer_resource', resource: 'money', amountField: 'rent', target: 'owner' }] },
+  ];
+  // Declining sends the square to auction, so the play screenshots reach one
+  // without depending on the dice.
+  const buyOrAuction = (title, cost) => [
+    { type: 'if_cell_unowned', then: [
+      { type: 'offer_choice', title, options: [
+        { id: 'buy', title: `Buy (${cost})`, then: [
+          { type: 'lose_resource', resource: 'money', amountField: 'cost' },
+          { type: 'set_cell_owner', target: 'current' },
+        ] },
+        { id: 'skip', title: 'Walk on by — it goes to auction', then: [
+          { type: 'start_auction', resource: 'money', amountField: 'opening', increment: 10,
+            then: [{ type: 'set_cell_owner', target: 'current' }],
+            else: [{ type: 'log_message', title: 'Nobody bid.' }] },
+        ] },
+      ] },
+    ], else: [{ type: 'if_cell_owned_by_other', then: rent }] },
+  ];
+  const property = (id, title, x, y, color, quay, cost, rentValue) =>
+    cell(id, title, 'property', x, y, color,
+      { quay, cost, rent: rentValue, opening: Math.round(cost / 2) },
+      buyOrAuction(`Buy ${title} for ${cost}?`, cost));
+
   return {
     title: 'Harbour Run',
     version: 1,
@@ -96,31 +132,14 @@ function demoGame() {
       width: 576, height: 384, cellSize: 96,
       cells: [
         cell('start', 'Start', 'start', 0, 0, '#4CAF50'),
-        cell('dock', 'Dock', 'property', 96, 0, '#E3F2FD', { cost: 100, rent: 20 }, [
-          { type: 'if_cell_unowned', then: [
-            { type: 'offer_choice', title: 'Buy the dock for 100?', options: [
-              { id: 'buy', title: 'Buy (100)', then: [
-                { type: 'lose_resource', resource: 'money', amountField: 'cost' },
-                { type: 'set_cell_owner', target: 'current' },
-              ] },
-              { id: 'skip', title: 'Walk on by', then: [] },
-            ] },
-          ], else: [
-            { type: 'if_cell_owned_by_other', then: [
-              { type: 'transfer_resource', resource: 'money', amountField: 'rent', target: 'owner' },
-            ] },
-          ] },
-        ]),
-        cell('market', 'Market', 'bonus', 192, 0, '#C8E6C9', { amount: 60 }, [
-          { type: 'gain_resource', resource: 'money', amountField: 'amount' },
-        ]),
-        cell('storm', 'Storm', 'penalty', 288, 0, '#FFCDD2', { amount: 40 }, [
-          { type: 'lose_resource', resource: 'money', amountField: 'amount' },
-        ]),
-        cell('warehouse', 'Warehouse', 'property', 384, 0, '#FFE0B2', { cost: 140, rent: 30 }),
-        cell('lighthouse', 'Lighthouse', 'bonus', 480, 0, '#C8E6C9', { amount: 90 }, [
-          { type: 'gain_resource', resource: 'money', amountField: 'amount' },
-        ]),
+        // Six squares, all for sale: a single die always lands on one of
+        // them, so the play screenshots never depend on the roll.
+        property('dock', 'Dock', 96, 0, '#E3F2FD', 'north', 100, 20),
+        property('market', 'Market', 192, 0, '#C8E6C9', 'north', 120, 24),
+        property('storm', 'Storm Wall', 288, 0, '#FFCDD2', 'south', 140, 28),
+        property('warehouse', 'Warehouse', 384, 0, '#FFE0B2', 'south', 160, 32),
+        property('lighthouse', 'Lighthouse', 480, 0, '#FFF9C4', 'south', 180, 36),
+        property('customs', 'Customs House', 480, 96, '#E1BEE7', 'south', 200, 40),
       ],
       edges: [
         { id: 'e1', from: 'start', to: 'dock', condition: { type: 'always' } },
@@ -128,7 +147,8 @@ function demoGame() {
         { id: 'e3', from: 'market', to: 'storm', condition: { type: 'always' } },
         { id: 'e4', from: 'storm', to: 'warehouse', condition: { type: 'always' } },
         { id: 'e5', from: 'warehouse', to: 'lighthouse', condition: { type: 'always' } },
-        { id: 'e6', from: 'lighthouse', to: 'start', condition: { type: 'always' } },
+        { id: 'e6', from: 'lighthouse', to: 'customs', condition: { type: 'always' } },
+        { id: 'e7', from: 'customs', to: 'start', condition: { type: 'always' } },
       ],
     },
     rules: {
@@ -136,9 +156,15 @@ function demoGame() {
       resources: { money: { initial: 500, label: 'Money' } },
       cellTypes: {
         start: { title: 'Start', fields: {} },
-        property: { title: 'Property', fields: { cost: { label: 'Cost', type: 'number', default: 100 }, rent: { label: 'Rent', type: 'number', default: 20 } } },
-        bonus: { title: 'Bonus', fields: { amount: { label: 'Amount', type: 'number', default: 50 } } },
-        penalty: { title: 'Penalty', fields: { amount: { label: 'Amount', type: 'number', default: 40 } } },
+        property: {
+          title: 'Property',
+          fields: {
+            quay: { label: 'Quay', type: 'string', default: 'north' },
+            cost: { label: 'Cost', type: 'number', default: 100 },
+            rent: { label: 'Rent', type: 'number', default: 20 },
+            opening: { label: 'Opening bid', type: 'number', default: 50 },
+          },
+        },
       },
       startBonus: 50,
       startBonusResource: 'money',
@@ -195,13 +221,18 @@ async function capture(browser, viewport, theme, fixtures) {
     // real action open rather than an empty list.
     const addAction = page.locator('.inspector select.add').first();
     if (await addAction.count()) {
-      await addAction.selectOption('if_resource_ge').catch(() => {});
+      // if_cells_ge shows both halves of the no-code language at once: the
+      // query that reads the rest of the board, and the computed amount.
+      await addAction.selectOption('if_cells_ge').catch(() => {});
       await page.waitForTimeout(200);
       const formulaToggle = page.locator('.inspector .formula input[type=checkbox]').first();
       if (await formulaToggle.count()) {
         await formulaToggle.check().catch(() => {});
       }
-      await page.locator('.inspector').evaluate((el) => el.scrollTo(0, el.scrollHeight)).catch(() => {});
+      // Frame the query rather than the bottom of the panel: the point of the
+      // shot is the part that reads the rest of the board.
+      await page.locator('.inspector .query').first()
+        .scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
       await remember('04b-action-editor');
       await page.locator('.inspector').evaluate((el) => el.scrollTo(0, 0)).catch(() => {});
     }
@@ -221,6 +252,19 @@ async function capture(browser, viewport, theme, fixtures) {
     await page.locator('.roll-btn').click().catch(() => {});
     await page.waitForTimeout(2200);
     await remember('08-playtest-rolled');
+
+    // Every square on the demo board is for sale, so declining always opens an
+    // auction: the bidding shot does not depend on the dice.
+    // Waited for rather than assumed: the token animation runs first, and the
+    // choice only appears once it has finished.
+    const decline = page.getByRole('button', { name: /auction|аукцион/i }).first();
+    await decline.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    if (await decline.count()) {
+      await decline.click().catch(() => {});
+      await page.getByRole('button', { name: /^bid |^ставка /i }).first()
+        .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+      await remember('08b-auction');
+    }
   }
 
   // 5. The multiplayer lobby and a live room.

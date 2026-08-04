@@ -118,6 +118,29 @@ func validateAction(action ActionDefinition) []string {
 		}
 	case "eliminate_player":
 		// no required fields
+	case "if_cells_ge", "for_each_cell":
+		if action.Query == nil {
+			errs = append(errs, fmt.Sprintf("%s: query is required", action.Type))
+		} else {
+			errs = append(errs, validateQuery(action.Type, action.Query)...)
+		}
+		errs = append(errs, validateBranches(action)...)
+	case "start_auction":
+		if strings.TrimSpace(action.Resource) == "" {
+			errs = append(errs, "start_auction: resource is required")
+		}
+		if action.Increment != nil && *action.Increment < 0 {
+			errs = append(errs, "start_auction: increment must be non-negative")
+		}
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "start_auction: amount must be non-negative")
+		}
+		if len(action.Then) == 0 {
+			// An auction that awards nothing takes money off the winner and
+			// gives them nothing back, which is never what the author meant.
+			errs = append(errs, "start_auction: then (what the winner receives) must not be empty")
+		}
+		errs = append(errs, validateBranches(action)...)
 	case "launch_minigame":
 		if action.MiniGame == nil || strings.TrimSpace(action.MiniGame.ModuleID) == "" || action.MiniGame.Version < 1 {
 			errs = append(errs, "launch_minigame: miniGame.moduleId and positive miniGame.version are required")
@@ -126,6 +149,29 @@ func validateAction(action ActionDefinition) []string {
 		errs = append(errs, "launch_minigame: mini-game modules are not enabled in this build")
 	default:
 		// Unknown action types are allowed (forward compatibility)
+	}
+	return errs
+}
+
+// validateQuery checks a cell query on its own terms.
+//
+// A query is a filter, so every mistake in one is silent: it simply matches
+// nothing, and the author sees rent of zero with no idea why.
+func validateQuery(actionType string, q *CellQuery) []string {
+	var errs []string
+	switch q.Owner {
+	case "", "any", "none", "current", "other", "cellOwner":
+	default:
+		errs = append(errs, fmt.Sprintf("%s: query owner %q is not one of any, none, current, other, cellOwner", actionType, q.Owner))
+	}
+	if q.SameAsCell && strings.TrimSpace(q.Field) == "" {
+		errs = append(errs, fmt.Sprintf("%s: query matches the same field on this cell but names no field", actionType))
+	}
+	if strings.TrimSpace(q.Value) != "" && strings.TrimSpace(q.Field) == "" {
+		errs = append(errs, fmt.Sprintf("%s: query has a value but no field to compare it against", actionType))
+	}
+	if q.MinLevel != nil && *q.MinLevel < 0 {
+		errs = append(errs, fmt.Sprintf("%s: query minLevel must be non-negative", actionType))
 	}
 	return errs
 }
@@ -177,6 +223,23 @@ func validateCellReferences(action ActionDefinition, owningCellID string, g *Gam
 	case "unequip_slot":
 		if slot := strings.TrimSpace(action.Target); slot != "" && !slices.Contains(g.Rules.EquipmentSlots, slot) {
 			errs = append(errs, fmt.Sprintf("unequip_slot: no equipment slot %q is defined", slot))
+		}
+	case "if_cells_ge", "for_each_cell":
+		// A query naming a cell type that does not exist matches nothing, and
+		// a rent that silently comes to zero is the hardest kind of mistake to
+		// find by playing.
+		if action.Query != nil && g.Rules.CellTypes != nil {
+			if typ := strings.TrimSpace(action.Query.Type); typ != "" {
+				if _, ok := g.Rules.CellTypes[typ]; !ok {
+					errs = append(errs, fmt.Sprintf("%s: query names unknown cell type %q", action.Type, typ))
+				}
+			}
+		}
+	case "start_auction":
+		if res := strings.TrimSpace(action.Resource); res != "" && g.Rules.Resources != nil {
+			if _, ok := g.Rules.Resources[res]; !ok {
+				errs = append(errs, fmt.Sprintf("start_auction: no resource %q is defined", res))
+			}
 		}
 	}
 	if action.Type == "move_player_to" {
