@@ -43,12 +43,19 @@ type PlayerState struct {
 	// SkipTurns counts turns this player forfeits before playing again. Jail,
 	// "lose a turn" and stun effects all reduce to this one counter.
 	SkipTurns int `json:"skipTurns,omitempty"`
+	// Inventory counts what the player is carrying, by item ID.
+	Inventory map[string]int `json:"inventory,omitempty"`
+	// Equipped maps an equipment slot to the item worn in it.
+	Equipped map[string]string `json:"equipped,omitempty"`
 }
 
 type CellState struct {
 	OwnerPlayerID string `json:"ownerPlayerId,omitempty"`
 	Mortgaged     bool   `json:"mortgaged,omitempty"`
 	Level         int    `json:"level,omitempty"`
+	// Revealed turns a face-down cell over. Only meaningful when the rules
+	// declare HiddenCells; otherwise every cell is always visible.
+	Revealed bool `json:"revealed,omitempty"`
 }
 
 type GameEvent struct {

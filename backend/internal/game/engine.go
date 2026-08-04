@@ -45,6 +45,8 @@ func StartSession(gameDef *GameDefinition, players []PlayerConfig) *GameSession 
 			PositionCellID: startCell.ID,
 			Resources:      resources,
 			Bankrupt:       false,
+			Inventory:      map[string]int{},
+			Equipped:       map[string]string{},
 		}
 	}
 
@@ -57,7 +59,7 @@ func StartSession(gameDef *GameDefinition, players []PlayerConfig) *GameSession 
 		NewGameEvent("game_start", fmt.Sprintf("Game started with %d players", len(players)), nil),
 	}
 
-	return &GameSession{
+	session := &GameSession{
 		ID:          generateID(),
 		GameID:      gameDef.ID,
 		GameVersion: gameDef.Version,
@@ -73,6 +75,12 @@ func StartSession(gameDef *GameDefinition, players []PlayerConfig) *GameSession 
 			Log:                log,
 		},
 	}
+
+	// The square everybody starts on is never a surprise.
+	if session.hiddenCellsEnabled() && startCell != nil {
+		session.revealCell(startCell.ID)
+	}
+	return session
 }
 
 type RollResult struct {
@@ -372,6 +380,7 @@ func (s *GameSession) moveSteps(steps int, diceRolls []int, diceTotal int, fromC
 	}
 
 	if finalCell != nil && len(finalCell.OnLand) > 0 {
+		s.revealCell(finalCell.ID)
 		landEvents := s.executeActions(finalCell.OnLand, player, finalCell)
 		events = append(events, landEvents...)
 	}
@@ -394,6 +403,19 @@ func (s *GameSession) executeActions(actions []ActionDefinition, player *PlayerS
 		events = append(events, actionEvents...)
 	}
 	return events
+}
+
+// resolveAmountOrOne is for counts, where an unset amount means "one" rather
+// than the zero resolveAmount returns.
+func resolveAmountOrOne(a ActionDefinition, fields map[string]any) int {
+	if a.Amount == nil && a.AmountField == "" {
+		return 1
+	}
+	amount := resolveAmount(a, fields)
+	if amount < 1 {
+		return 1
+	}
+	return amount
 }
 
 func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, cell *CellDefinition) []GameEvent {
@@ -563,6 +585,7 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		// because a teleport chain that returns to its own start would need the
 		// definition to be written that way, and validation rejects a cell
 		// whose own onLand teleports to itself.
+		s.revealCell(target.ID)
 		return append(events, s.executeActions(target.OnLand, player, target)...)
 
 	case "skip_turns":
@@ -584,6 +607,40 @@ func (s *GameSession) executeOneAction(a ActionDefinition, player *PlayerState, 
 		events := []GameEvent{NewGameEvent("random_branch",
 			fmt.Sprintf("%s: %s", player.Name, picked.Title), nil)}
 		return append(events, s.executeActions(picked.Then, player, cell)...)
+
+	case "grant_item":
+		return s.grantItem(player, a.Field, resolveAmountOrOne(a, cell.Fields))
+
+	case "remove_item":
+		return s.removeItem(player, a.Field, resolveAmountOrOne(a, cell.Fields))
+
+	case "equip_item":
+		return s.equipItem(player, a.Field)
+
+	case "unequip_slot":
+		return s.unequipSlot(player, a.Target)
+
+	case "use_item":
+		return s.useItem(player, a.Field, cell)
+
+	case "if_has_item":
+		ensureInventory(player)
+		if player.Inventory[a.Field] >= resolveAmountOrOne(a, cell.Fields) {
+			return s.executeActions(a.Then, player, cell)
+		}
+		return s.executeActions(a.Else, player, cell)
+
+	case "if_stat_ge":
+		// Compares the effective value, so a check against strength counts the
+		// sword the player is holding. if_resource_ge deliberately still reads
+		// the raw stored value.
+		if s.EffectiveResource(player, a.Resource) >= resolveAmount(a, cell.Fields) {
+			return s.executeActions(a.Then, player, cell)
+		}
+		return s.executeActions(a.Else, player, cell)
+
+	case "reveal_cells":
+		return s.revealCells(player, a, cell)
 
 	case "eliminate_player":
 		// Nothing in the engine ever set Bankrupt, which made the
@@ -744,6 +801,7 @@ func (s *GameSession) resolveRouteChoice(edgeID string) ([]GameEvent, error) {
 	}
 
 	if nextCell != nil && len(nextCell.OnLand) > 0 {
+		s.revealCell(nextCell.ID)
 		landEvents := s.executeActions(nextCell.OnLand, player, nextCell)
 		events = append(events, landEvents...)
 	}

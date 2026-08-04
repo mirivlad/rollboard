@@ -54,6 +54,34 @@ type RuleSet struct {
 	CellTypes          map[string]CellTypeDef  `json:"cellTypes"`
 	StartBonus         int                     `json:"startBonus"`
 	StartBonusResource string                  `json:"startBonusResource"`
+
+	// Items are the definition's catalogue of things a player can carry. A
+	// resource is a number; an item is a named thing with its own effects,
+	// which is what a sword has to be and a counter cannot.
+	Items map[string]ItemDef `json:"items,omitempty"`
+	// EquipmentSlots names the places an item can be worn, in display order.
+	// One item per slot.
+	EquipmentSlots []string `json:"equipmentSlots,omitempty"`
+	// HiddenCells starts every cell face down. Landing on one turns it over,
+	// and a reveal_cells action can turn over more.
+	HiddenCells bool `json:"hiddenCells,omitempty"`
+}
+
+// ItemDef describes one kind of item.
+type ItemDef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Slot, when set, names the equipment slot this item occupies. An item
+	// with no slot is carried but never worn: a potion, a key, a quest token.
+	Slot string `json:"slot,omitempty"`
+	// Bonuses apply to the player's effective stats while the item is
+	// equipped. They are deliberately not applied while it merely sits in the
+	// pack, so equipping is a decision rather than a formality.
+	Bonuses map[string]int `json:"bonuses,omitempty"`
+	// Consumable items are destroyed when used.
+	Consumable bool `json:"consumable,omitempty"`
+	// Use runs when a consumable is used.
+	Use []ActionDefinition `json:"use,omitempty"`
 }
 
 type DiceRule struct {

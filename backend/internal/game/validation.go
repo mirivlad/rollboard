@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -93,6 +94,28 @@ func validateAction(action ActionDefinition) []string {
 				errs = append(errs, validateAction(nested)...)
 			}
 		}
+	case "grant_item", "remove_item", "equip_item", "use_item":
+		if strings.TrimSpace(action.Field) == "" {
+			errs = append(errs, fmt.Sprintf("%s: field (item id) is required", action.Type))
+		}
+	case "unequip_slot":
+		if strings.TrimSpace(action.Target) == "" {
+			errs = append(errs, "unequip_slot: target (slot name) is required")
+		}
+	case "if_has_item":
+		if strings.TrimSpace(action.Field) == "" {
+			errs = append(errs, "if_has_item: field (item id) is required")
+		}
+		errs = append(errs, validateBranches(action)...)
+	case "if_stat_ge":
+		if strings.TrimSpace(action.Resource) == "" {
+			errs = append(errs, "if_stat_ge: resource is required")
+		}
+		errs = append(errs, validateBranches(action)...)
+	case "reveal_cells":
+		if action.Amount != nil && *action.Amount < 0 {
+			errs = append(errs, "reveal_cells: amount must be non-negative")
+		}
 	case "eliminate_player":
 		// no required fields
 	case "launch_minigame":
@@ -142,6 +165,20 @@ func validateActions(cellID string, listName string, actions []ActionDefinition,
 // both are rejected at publication.
 func validateCellReferences(action ActionDefinition, owningCellID string, g *GameDefinition) []string {
 	var errs []string
+	switch action.Type {
+	case "grant_item", "remove_item", "equip_item", "use_item", "if_has_item":
+		// A typo in an item id would otherwise be silent: the action would run
+		// and simply do nothing.
+		if id := strings.TrimSpace(action.Field); id != "" {
+			if _, ok := g.Rules.Items[id]; !ok {
+				errs = append(errs, fmt.Sprintf("%s: no item %q is defined", action.Type, id))
+			}
+		}
+	case "unequip_slot":
+		if slot := strings.TrimSpace(action.Target); slot != "" && !slices.Contains(g.Rules.EquipmentSlots, slot) {
+			errs = append(errs, fmt.Sprintf("unequip_slot: no equipment slot %q is defined", slot))
+		}
+	}
 	if action.Type == "move_player_to" {
 		to := strings.TrimSpace(action.To)
 		if to != "" {
@@ -212,6 +249,25 @@ func ValidateDefinition(g *GameDefinition) *ValidationError {
 	if g.Board.CellSize > 0 {
 		maxCols = g.Board.Width / g.Board.CellSize
 		maxRows = g.Board.Height / g.Board.CellSize
+	}
+
+	for id, item := range g.Rules.Items {
+		if strings.TrimSpace(item.Title) == "" {
+			errs = append(errs, fmt.Sprintf("item %q: title is required", id))
+		}
+		if item.Slot != "" && !slices.Contains(g.Rules.EquipmentSlots, item.Slot) {
+			errs = append(errs, fmt.Sprintf("item %q: slot %q is not in rules.equipmentSlots", id, item.Slot))
+		}
+		for resource := range item.Bonuses {
+			if _, ok := g.Rules.Resources[resource]; !ok {
+				errs = append(errs, fmt.Sprintf("item %q: bonus refers to unknown resource %q", id, resource))
+			}
+		}
+		for _, use := range item.Use {
+			for _, e := range validateAction(use) {
+				errs = append(errs, fmt.Sprintf("item %q use: %s", id, e))
+			}
+		}
 	}
 
 	hasStart := false
