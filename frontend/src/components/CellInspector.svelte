@@ -349,17 +349,29 @@
 
 <style>
   .inspector {
-    width: 260px;
-    padding: 16px;
+    /* Fills the column the editor grid gives it rather than fixing its own
+       width, which is what pushed the action editor off the right edge. */
+    width: 100%;
+    min-width: 0;
+    padding: var(--space-4);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow-y: auto;
-    font-size: 13px;
+    overflow-x: hidden;
+    font-size: var(--text-sm);
+  }
+  /* Nothing inside may force the panel wider than its column. */
+  .inspector :global(*) {
+    max-width: 100%;
+    min-width: 0;
   }
   .inspector h3, .inspector h4 {
-    margin: 0 0 8px;
-    color: var(--danger);
+    margin: 0 0 var(--space-2);
+    color: var(--accent-strong);
+    font-size: var(--text-sm);
+    letter-spacing: .06em;
+    text-transform: uppercase;
   }
   .inspector label {
     display: block;

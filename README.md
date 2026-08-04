@@ -53,9 +53,10 @@ roll"), never results.
 
 ![Editor](docs/screenshots/editor.png)
 
-**Cell inspector** — properties, fields and the visual action editor.
+**Action editor** — every action the engine can run, built from dropdowns.
+Amounts can be computed: "this cell's damage, minus my defence, at least zero".
 
-![Editor inspector](docs/screenshots/editor-inspector.png)
+![Action editor](docs/screenshots/action-editor.png)
 
 **Playtest** — dice, movement along the graph, and a choice produced entirely by the game's data.
 

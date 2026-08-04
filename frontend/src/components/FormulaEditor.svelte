@@ -108,6 +108,7 @@
 
 <style>
   .formula {
+    container-type: inline-size;
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2);
@@ -128,9 +129,16 @@
   }
   .term {
     display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr) minmax(0, 1fr);
+    /* Stacked by default so it fits a narrow inspector, side by side once
+       there is room. */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-1);
     align-items: center;
+  }
+  @container (min-width: 260px) {
+    .term {
+      grid-template-columns: 4rem minmax(0, 1fr) minmax(0, 1fr);
+    }
   }
   .slot-label {
     color: var(--text-faint);

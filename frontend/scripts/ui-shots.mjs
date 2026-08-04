@@ -190,6 +190,21 @@ async function capture(browser, viewport, theme, fixtures) {
   if (await firstCell.count()) {
     await firstCell.click({ force: true }).catch(() => {});
     await remember('04-editor-inspector');
+
+    // The action editor is the point of the studio, so photograph it with a
+    // real action open rather than an empty list.
+    const addAction = page.locator('.inspector select.add').first();
+    if (await addAction.count()) {
+      await addAction.selectOption('if_resource_ge').catch(() => {});
+      await page.waitForTimeout(200);
+      const formulaToggle = page.locator('.inspector .formula input[type=checkbox]').first();
+      if (await formulaToggle.count()) {
+        await formulaToggle.check().catch(() => {});
+      }
+      await page.locator('.inspector').evaluate((el) => el.scrollTo(0, el.scrollHeight)).catch(() => {});
+      await remember('04b-action-editor');
+      await page.locator('.inspector').evaluate((el) => el.scrollTo(0, 0)).catch(() => {});
+    }
   }
 
   // 4. Hotseat playtest: setup, a turn, and a roll.
