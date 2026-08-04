@@ -37,6 +37,8 @@ services:
       ROLLBOARD_COOKIE_SECURE: "false"
       ROLLBOARD_LOCALES_DIR: /app/locales
       ROLLBOARD_UPLOADS_DIR: /app/uploads
+      ROLLBOARD_UPLOAD_QUOTA_MB: ${ROLLBOARD_UPLOAD_QUOTA_MB:-50}
+      ROLLBOARD_UPLOAD_TOTAL_MB: ${ROLLBOARD_UPLOAD_TOTAL_MB:-5000}
     volumes:
       # Bind-mounting the catalogs means editing a JSON file and restarting the
       # container is enough to change or add a translation.

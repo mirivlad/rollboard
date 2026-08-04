@@ -19,6 +19,11 @@ const (
 	// Attempts per minute, per source IP, per replica, on the credential
 	// endpoints. Set to a large value on a trusted private deployment.
 	defaultAuthRateLimit = int32(10)
+	// Uploads: one author's images, the deployment's images, and how fast one
+	// account may add them. A quota nobody set is a disk somebody else fills.
+	defaultUploadQuotaMB   = int32(50)
+	defaultUploadTotalMB   = int32(5000)
+	defaultUploadRateLimit = int32(30)
 )
 
 type Config struct {
@@ -36,6 +41,12 @@ type Config struct {
 	LocalesDir string
 	// UploadsDir stores author-uploaded images. Empty disables uploading.
 	UploadsDir string
+	// UploadQuotaBytes is how much one account's images may total.
+	UploadQuotaBytes int64
+	// UploadTotalBytes is how much the whole deployment stores.
+	UploadTotalBytes int64
+	// UploadRateLimit is uploads per minute, per account.
+	UploadRateLimit int
 }
 
 func Load() (Config, error) {
@@ -56,6 +67,19 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	uploadQuotaMB, err := envPositiveInt32("ROLLBOARD_UPLOAD_QUOTA_MB", defaultUploadQuotaMB)
+	if err != nil {
+		return Config{}, err
+	}
+	uploadTotalMB, err := envPositiveInt32("ROLLBOARD_UPLOAD_TOTAL_MB", defaultUploadTotalMB)
+	if err != nil {
+		return Config{}, err
+	}
+	uploadRateLimit, err := envPositiveInt32("ROLLBOARD_UPLOAD_RATE_LIMIT", defaultUploadRateLimit)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Addr:             env("ROLLBOARD_ADDR", defaultAddr),
 		DatabaseURL:      env("ROLLBOARD_DATABASE_URL", defaultDatabaseURL),
@@ -68,6 +92,9 @@ func Load() (Config, error) {
 		AuthRateLimit:    int(authRateLimit),
 		LocalesDir:       strings.TrimSpace(os.Getenv("ROLLBOARD_LOCALES_DIR")),
 		UploadsDir:       strings.TrimSpace(os.Getenv("ROLLBOARD_UPLOADS_DIR")),
+		UploadQuotaBytes: int64(uploadQuotaMB) << 20,
+		UploadTotalBytes: int64(uploadTotalMB) << 20,
+		UploadRateLimit:  int(uploadRateLimit),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

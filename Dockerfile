@@ -23,6 +23,9 @@ ARG TARGETARCH
 ARG TARGETOS
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags='-s -w' -o /out/rollboard ./cmd/server
+# An empty directory to become the uploads mount point. It is made here, on the
+# build machine, because the final stage runs nothing at all — see below.
+RUN mkdir -p /out/uploads
 
 FROM alpine:3.21
 # Nothing is executed in this stage, only copied, so producing an arm64 image
@@ -35,6 +38,15 @@ COPY --from=frontend-build /src/frontend/dist /app/frontend
 # the bundle, so mounting a volume over /app/locales adds or corrects a
 # language without rebuilding this image.
 COPY locales/ /app/locales/
+# Uploads are written by the server, so the directory has to belong to the user
+# it runs as. Docker copies an image directory's ownership into a fresh named
+# volume, so this is also what makes the volume writable on a clean deployment.
+#
+# Without it the packaged stack could not accept a single image: the volume came
+# up owned by root, the server ran as 10001, and every upload answered 500.
+# COPY --chown does this without executing anything, which keeps QEMU out of the
+# multi-architecture build.
+COPY --from=backend-build --chown=10001:10001 /out/uploads /app/uploads
 # A numeric UID rather than a named user: the server is a static binary and
 # never looks itself up in /etc/passwd.
 USER 10001:10001

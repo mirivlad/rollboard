@@ -31,6 +31,8 @@ services:
       ROLLBOARD_COOKIE_SECURE: "true"
       ROLLBOARD_LOCALES_DIR: /app/locales
       ROLLBOARD_UPLOADS_DIR: /app/uploads
+      ROLLBOARD_UPLOAD_QUOTA_MB: ${ROLLBOARD_UPLOAD_QUOTA_MB:-50}
+      ROLLBOARD_UPLOAD_TOTAL_MB: ${ROLLBOARD_UPLOAD_TOTAL_MB:-5000}
     # The image already ships English and Russian at /app/locales. To add a
     # language or reword the interface, bind-mount a directory that contains a
     # COMPLETE set of catalogs — a mount replaces the built-in ones rather than

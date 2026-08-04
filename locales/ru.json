@@ -262,6 +262,8 @@
   "errors.ROOM_MEMBERSHIP_REQUIRED": "Сначала войдите в комнату.",
   "errors.UNAUTHENTICATED": "Требуется вход.",
   "errors.NETWORK": "Не удалось связаться с сервером. Проверьте соединение.",
+  "errors.UPLOAD_QUOTA_EXCEEDED": "Место под изображения закончилось. Удалите ненужные, чтобы освободить его.",
+  "errors.UPLOAD_STORAGE_FULL": "На сервере больше нет места для изображений.",
   "inspector.actionType": "Действие",
   "inspector.item": "Предмет",
   "inspector.slot": "Слот",

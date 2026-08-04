@@ -78,8 +78,22 @@ func main() {
 			RateLimit:               cfg.AuthRateLimit,
 		}).
 		WithLocales(httpapi.LocaleOptions{Dir: cfg.LocalesDir}).
-		WithUploads(httpapi.UploadOptions{Dir: cfg.UploadsDir})
+		WithUploads(httpapi.UploadOptions{
+			Dir:             cfg.UploadsDir,
+			Records:         postgres.NewUploadRecords(store.Pool()),
+			PerAccountBytes: cfg.UploadQuotaBytes,
+			TotalBytes:      cfg.UploadTotalBytes,
+			RatePerMinute:   cfg.UploadRateLimit,
+		})
 	api.RegisterRoutes(mux)
+
+	// A crash between writing an image and recording it leaves a file nothing
+	// references, and nothing else would ever remove it.
+	if removed, err := api.SweepOrphanedUploads(context.Background()); err != nil {
+		log.Printf("could not sweep orphaned uploads: %v", err)
+	} else if removed > 0 {
+		log.Printf("removed %d orphaned upload(s)", removed)
+	}
 	if cfg.StaticDir != "" {
 		mux.Handle("/", spaHandler(cfg.StaticDir))
 	}

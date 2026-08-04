@@ -35,16 +35,17 @@ const (
 )
 
 type API struct {
-	store        storage.Store
-	identity     identity.Service
-	catalog      CatalogService
-	rooms        RoomService
-	hub          *realtime.Hub
-	auth         AuthOptions
-	authLimiter  *rateLimiter
-	guestLimiter *rateLimiter
-	locales      LocaleOptions
-	uploads      UploadOptions
+	store         storage.Store
+	identity      identity.Service
+	catalog       CatalogService
+	rooms         RoomService
+	hub           *realtime.Hub
+	auth          AuthOptions
+	authLimiter   *rateLimiter
+	guestLimiter  *rateLimiter
+	locales       LocaleOptions
+	uploads       UploadOptions
+	uploadLimiter *rateLimiter
 }
 
 type CatalogService interface {

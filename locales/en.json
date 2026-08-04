@@ -260,6 +260,8 @@
   "errors.ROOM_MEMBERSHIP_REQUIRED": "Join the room first.",
   "errors.UNAUTHENTICATED": "Sign in required.",
   "errors.NETWORK": "Could not reach the server. Check your connection.",
+  "errors.UPLOAD_QUOTA_EXCEEDED": "You have used all your image storage. Delete some images to make room.",
+  "errors.UPLOAD_STORAGE_FULL": "This server has no room for more images.",
   "inspector.actionType": "Action",
   "inspector.item": "Item",
   "inspector.slot": "Slot",
