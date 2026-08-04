@@ -9,6 +9,8 @@
     onSelect?: (id: string) => void;
   } = $props();
 
+  import { TILE_INSET } from '../lib/board-layout';
+
   let cellMap = $derived(new Map(cells.map(c => [c.id, c])));
 
   function condLabel(cond: EdgeCondition): string {
@@ -24,17 +26,57 @@
     }
   }
 
+  /** Distance from a tile centre to its border along a direction. */
+  function borderOffset(dx: number, dy: number, half: number): number {
+    // The line leaves a square, not a circle: whichever axis reaches the edge
+    // first decides. For an axis-aligned neighbour this is exactly `half`;
+    // for a diagonal it is longer, which is what keeps the arrow touching the
+    // corner rather than floating away from it.
+    const scaleX = dx === 0 ? Infinity : half / Math.abs(dx);
+    const scaleY = dy === 0 ? Infinity : half / Math.abs(dy);
+    return Math.min(scaleX, scaleY);
+  }
+
+  /**
+   * Endpoints trimmed to the tiles' borders rather than their centres.
+   *
+   * Centre-to-centre lines are drawn straight across whatever they connect,
+   * so a path looked like it was scribbled over the board instead of joining
+   * squares together. This leaves only the gap between two tiles drawn.
+   */
   function edgePoints(edge: EdgeDefinition): { x1: number; y1: number; x2: number; y2: number } | null {
     const from = cellMap.get(edge.from);
     const to = cellMap.get(edge.to);
     if (!from || !to) return null;
-    const half = cellSize / 2;
+
+    // Stop at the drawn tile edge, not the grid slot edge, so the arrow lands
+    // in the gutter between neighbours.
+    const half = cellSize / 2 - TILE_INSET;
+    const slotHalf = cellSize / 2;
+    const cx1 = from.x + slotHalf;
+    const cy1 = from.y + slotHalf;
+    const cx2 = to.x + slotHalf;
+    const cy2 = to.y + slotHalf;
+
+    const dx = cx2 - cx1;
+    const dy = cy2 - cy1;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return null;
+
+    const startScale = borderOffset(dx, dy, half);
+    const endScale = borderOffset(dx, dy, half);
+
     return {
-      x1: from.x + half,
-      y1: from.y + half,
-      x2: to.x + half,
-      y2: to.y + half,
+      x1: cx1 + dx * startScale,
+      y1: cy1 + dy * startScale,
+      x2: cx2 - dx * endScale,
+      y2: cy2 - dy * endScale,
     };
+  }
+
+  /** Neighbouring tiles leave almost no room, so their labels are dropped. */
+  function hasRoomForLabel(points: { x1: number; y1: number; x2: number; y2: number }): boolean {
+    return Math.hypot(points.x2 - points.x1, points.y2 - points.y1) > 28;
   }
 
   function handleClick(id: string, e: Event) {
@@ -75,15 +117,17 @@
         marker-end="url(#arrowhead)"
       />
       <!-- Condition label -->
-      <text
-        x={(pts.x1 + pts.x2) / 2}
-        y={(pts.y1 + pts.y2) / 2 - 8}
-        class="edge-label"
-        text-anchor="middle"
-        font-size="11"
-      >
-        {condLabel(edge.condition)}
-      </text>
+      {#if condLabel(edge.condition) && hasRoomForLabel(pts)}
+        <text
+          x={(pts.x1 + pts.x2) / 2}
+          y={(pts.y1 + pts.y2) / 2 - 6}
+          class="edge-label"
+          text-anchor="middle"
+          font-size="11"
+        >
+          {condLabel(edge.condition)}
+        </text>
+      {/if}
     {/if}
   {/each}
   <defs>
@@ -99,6 +143,8 @@
     top: 0;
     left: 0;
     pointer-events: none;
+    /* Below the tiles. The cells carried no z-index of their own, so this
+       layer used to win and every path was drawn across the board. */
     z-index: 1;
   }
   .edge-layer line, .edge-layer path {
@@ -106,6 +152,7 @@
   }
   .edge-line {
     stroke: var(--accent);
+    stroke-linecap: round;
     pointer-events: none;
   }
   .edge-line.selected {

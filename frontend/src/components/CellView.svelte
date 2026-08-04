@@ -1,5 +1,6 @@
 <script lang="ts">
   import { HIDDEN_CELL_TYPE } from '../lib/types';
+  import { tileRect } from '../lib/board-layout';
   import { i18n } from '../lib/i18n.svelte';
   import type { CellDefinition, CellState, PlayerState } from '../lib/types';
 
@@ -19,6 +20,7 @@
 
   let t = $derived(i18n.t);
   let isHidden = $derived(cell.type === HIDDEN_CELL_TYPE);
+  let rect = $derived(tileRect(cell.x, cell.y, cellSize));
 </script>
 
 <div
@@ -26,10 +28,10 @@
   class:selected={isSelected}
   class:hidden-cell={isHidden}
   style="
-    left: {cell.x}px;
-    top: {cell.y}px;
-    width: {cellSize}px;
-    height: {cellSize}px;
+    left: {rect.left}px;
+    top: {rect.top}px;
+    width: {rect.size}px;
+    height: {rect.size}px;
     background-color: {isHidden ? '' : cell.visual.baseColor || '#eee'};
     background-image: {cell.visual.baseImage ? `url(${cell.visual.baseImage})` : 'none'};
     background-size: cover;
@@ -72,6 +74,9 @@
   }
   .cell {
     position: absolute;
+    /* Above the edge layer, which is z-index 1. Without this the tiles had no
+       stacking order at all and the paths were drawn over them. */
+    z-index: 2;
     border: 2px solid rgba(0, 0, 0, 0.35);
     border-radius: 8px;
     display: flex;
