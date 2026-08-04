@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -133,6 +134,81 @@ func TestAuctionWithNoBidsRunsTheFallback(t *testing.T) {
 		if player.Resources["money"] != 500 {
 			t.Fatalf("%s paid for an auction nobody won", player.Name)
 		}
+	}
+	// An auction nobody wanted must still hand the turn on. Leaving it with the
+	// player who started it would stall the game on a square nobody bought.
+	if session.State.CurrentPlayerIndex != 1 {
+		t.Fatalf("play resumed with player %d, want Bob", session.State.CurrentPlayerIndex)
+	}
+	if session.State.Status != "active" {
+		t.Fatalf("game status = %q after an unsold auction", session.State.Status)
+	}
+	if _, _, err := rollOnce(session); err != nil {
+		t.Fatalf("the game did not continue after an unsold auction: %v", err)
+	}
+}
+
+// rollOnce plays one ordinary turn, to prove the game is still playable.
+func rollOnce(session *GameSession) (*RollResult, []GameEvent, error) {
+	if session.State.PendingAction != nil {
+		return nil, nil, fmt.Errorf("a pending action is still outstanding")
+	}
+	roll, _ := session.RollDice()
+	return roll, session.MoveCurrentPlayer(roll.Total, roll.Rolls, roll.Total), nil
+}
+
+func TestAuctionEndsWithoutAPromptWhenNobodyCanAfford(t *testing.T) {
+	session := auctionSession(t)
+	ada := &session.State.Players[0]
+	for i := range session.State.Players {
+		session.State.Players[i].Resources["money"] = 5
+	}
+	cell := session.Definition.Board.getCellByID("blue_a")
+
+	// Every player is dropped before being asked, so the auction finishes
+	// inside the action that started it and never becomes a pending choice.
+	events := session.executeOneAction(auctionCell(), ada, cell)
+
+	if session.State.PendingAction != nil || session.State.PendingAuction != nil {
+		t.Fatalf("an auction nobody could afford is still waiting: %+v", session.State.PendingAction)
+	}
+	if owner := session.State.CellStates["blue_a"].OwnerPlayerID; owner != "" {
+		t.Fatalf("an unaffordable square was given to %q", owner)
+	}
+	if !hasMessage(events, "The square stays with the bank") {
+		t.Fatalf("the no-sale branch did not run: %s", messages(events))
+	}
+	for _, player := range session.State.Players {
+		if player.Resources["money"] != 5 {
+			t.Fatalf("%s paid something in an auction they could not enter", player.Name)
+		}
+	}
+}
+
+func TestAuctionWithOneEligibleBidderStillNeedsABid(t *testing.T) {
+	session := auctionSession(t)
+	ada := &session.State.Players[0]
+	// Only Ada may bid, and she declines: a single participant is not a
+	// walkover.
+	cell := session.Definition.Board.getCellByID("blue_a")
+	action := auctionCell()
+	action.Target = "others"
+	session.State.Players[1].Bankrupt = true
+
+	session.executeOneAction(action, ada, cell)
+	if session.State.PendingAction == nil {
+		t.Fatal("Cleo was never asked")
+	}
+	if got := session.State.PendingAction.PlayerID; got != session.State.Players[2].ID {
+		t.Fatalf("bidder = %s, want Cleo", got)
+	}
+	mustResolve(t, session, "pass")
+
+	if session.State.PendingAuction != nil {
+		t.Fatal("the auction outlived its only bidder")
+	}
+	if owner := session.State.CellStates["blue_a"].OwnerPlayerID; owner != "" {
+		t.Fatalf("the square went to %q without a bid", owner)
 	}
 }
 
